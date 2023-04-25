@@ -37,7 +37,7 @@ However, when I trained this blindfolded hero, it took a long time to make any m
 
 5. Visiting a previously un-visited position is rewarded.
 
-This is a complemetary reward to penalty #3, to encourage our hero to move forward instead of backward. The benefit of adding this reward is apparent:
+This is a complemetary reward to penalty #3, to encourage our hero to move forward instead of backward. The benefit of adding this reward is immediately visible:
 
 ![Maze_Solved](/Screenshots/Maze_Solved.gif)
 ![Maze_TrainProgress](/Screenshots/Maze_TrainingProgress.jpg)
