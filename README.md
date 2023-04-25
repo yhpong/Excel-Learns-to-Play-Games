@@ -3,7 +3,7 @@ Reinforcement Learning with Proximal Policy Optimization
 
 ![MazeII](/Screenshots/MazeII_Solved.gif)
 
-*This is more of me ranting than beign a technical document. If you are looking for resources to learnign reinforcement learning, there are better resources out there, like [Lilian Weng's Blog](https://lilianweng.github.io/)*
+*This is more about me ranting than a technical discussion. If you are looking for resources to learning reinforcement learning, there are better resources out there, like [Lilian Weng's Blog](https://lilianweng.github.io/)*
 
 I have long procrastinated from studying reinforcement learning. Partly because of busy work schedule, partly because the math looks intimidating and partly because there are already great minds out there who coded the libraries for us. But with all the recent advancements, I don't want to have too much to catch up in the next few years, so I decided to bite the bullet, and really learnt the nitty gritty, coded everything up from scratch, in VBA!! So no libraries, no vectorization, no auto-differentiation. Every matrix math is done in for-loops, all the gradients and back propagation are done by hand!
 
@@ -34,36 +34,35 @@ At first I followed the blog-post and trained our hero with a reward scheme like
 This reward scheme makes a lot of sense, since it encourages the player to finish the game faster, and discourages it from meaningless actions like running into a wall and going back and forth. And obviously reaching its goal carries a reward. The environmetal states that were passed to the player were:
 1. A 7X7 matrix with 1 indicating the player position, and 0 otherwise, flattened to a length 49 vector.
 
-You can easily see why this is only a "toy" problem. First, our hero knows in advance that the whole input space cannot be larger than 7X7. And he is basically blind to what's around him. Only by running into an obstacle and being punished for the action, would he learn to "not go right when my position is (1,7)". All he knows is that performing certain action at a certain location carries a penalty, and he learns to do less of it in his next play.
+You can easily see why this is only a "toy" problem. Our hero knows in advance that the whole input space cannot be larger than 7X7. And he is basically blind to what's around him. Only by running into an obstacle and being punished for the action, would he learn to "not go right when my position is (1,7)". All he knows is that performing certain action at a certain location carries a penalty, and he learns to do less of it in his next play.
 
 However, when I trained this blindfolded hero, it took a long time to make any meaningful progress (mind you this is VBA). So to speed up his training program, I added an incentive for him to explore the maze faster: 
 
 5. Visiting a previously un-visited position is rewarded.
 
-With reward #5 added, he quickly managed to learn and reached 100% win rate pretty fast, in a total of 17 cycles, where each cycle he learns from 50 episodes. One reason why he learnt to play this maze so quickly is that it's not really a maze. In this small maze, the obstacles often constrain our hero to move in specific directions. Since moving into obstacles and backtracking are both penalized, he quickly learns that going foward is more rewarding. So possibilites of going off target is limited.
+This is a complemetary reward to penalty #3, to encourage our hero to move forward instead of backward. The benefit of adding this reward is apparent:
 
-
-
-![Maze_Solved](/Screenshots/Maze_solved.gif)
-
+![Maze_Solved](/Screenshots/Maze_Solved.gif)
 ![Maze_TrainProgress](/Screenshots/Maze_TrainingProgress.jpg)
 
-Things become much more challenging when I experimented with a bigger maze with a 7X13 grid as below:
+With reward #5 added, he quickly managed to learn and reached 100% win rate pretty fast, in a total of 17 cycles, where each cycle he learnt from 50 episodes. One reason why he learnt to play this maze so quickly is that it's not really a maze. In this small maze, the obstacles often constrain our hero to move in specific directions. Since moving into obstacles and backtracking are both penalized, he quickly learns that going foward is more rewarding. So possibilites of going off target is limited.
+
+Things however become much more challenging when I experimented with a bigger maze with a 7X13 grid as below:
 ![Larger Maze](/Screenshots/Maze_Compared.jpg)
 
 The size of this maze is almost doubled, but the learning curve quickly becomes insurmountable. Difficulties soon arise when he enters the lower middle chamber. This is a huge void with no distinct feature to guide him. If he choose to enter the lower slot at the bottom right,  penalty #3 would encourage him to move deeper into the end, while at the same time he's penalized for moving back out, so that would be a local optimum for him to stay in. Even if he enters the middle area which is closer to the goal, it's a huge space with only a small window into where the Pricess is held captive. Using Monte Carlo to do this means only once in many episodes would he stand in front of that entry point, and many more episodes until he would actaully step through that window, and repeat that many times until he realizes the Princess is here. The animated gif below shows how our hero got stucked when he was trained to play this maze with the previous scheme:
 
 ![MazeII_stuck](/Screenshots/MazeII_stuck.gif)
 
-If this is really a game and I am a gamer, this would be a pretty bad 1-star game design since the game makes you wander around without purpose, do a lot of back tracking, and the only way to win the game is by luck. However, this could well be a real problem that our hero really needs to solve. So to encourage it to learn faster, I adjusted both the reward scheme and the state variables that he was allowed to know. In the new reward scheme, these two additional rewards were added:
+If this is really a game and I am a gamer, this would be a pretty bad 1-star game design since the game makes you wander around without purpose, do a lot of back tracking, and the only way to win the game is by luck. However, this could well be a real problem that our hero really needs to solve. So to encourage it to learn faster, I adjusted both the reward scheme and the state variables that he was allowed to know. In the new reward scheme, the following change was made:
 
 6. End-reward of reaching the Princess is increased.
 
-These rewards were designed to futher encourage exploration into uncharted territory. At the same time the end reward was greatly increased so he didn't prefer exploration over the Princess (finishing all the side missions before the main plot).
+By increasing the end reward was greatly increased so he didn't prefer exploration over the Princess (finishing all the side missions before the main plot). And if he was lucky enough to reach the Princess once, he would be very tempted to reach that goal again.
 
 For the state variables, I also made him work more like a real person/robot, where he could see:
-1. x & y coordinates of current position
-2. x & y coordinates of last position
+1. x & y coordinates of current position (rescaled to 1)
+2. x & y coordinates of last position (rescaled to 1)
 3. whether the 8 immediate cells surrouding him are blocked.
 4. whether the 8 immediate cells surrouding him were previously visited.
 
@@ -71,7 +70,8 @@ So unlike last time where the whole 7X13 grid was encoded as states, now he only
 
 ![MazeII_progress](/Screenshots/MazeII_TrainingProgress_withvswithoutMemory.jpg)
 
-In the figure above we can see that when oru hero has memory, he easilyt solved the maze in about 15 cycles (750 games). Compared that to using the original training scheme, where he got stuck in a learnign plateau and never even finished the game. So it's evident that the optimization algorithm is only one component here. How we designed the environment is just as, or even more important. In the real world, that would mean better sensors, better processing power and more common sense.
+In the figure above we can see that when our hero has memory, he easily solves the maze in about 15 cycles (750 games). Compared that to using the original training scheme, where he got stuck in a learning plateau and never even finished the game. So it's evident that the optimization algorithm is only one component here. How we designed the environment is just as, or even more important. In the real world, that would mean better sensors, better processing power, cleaner data and more common sense.
 
-The takeaway from these experience is that reinforcement learning, or aritificial intelligence in general, is often exaggerated and misrepresented in general media. It is a magical thing to see some randomly intialized matricies to learn and adapt to tasks in the physical dimension, but at the same time they are not very different from linear regression: you fit a model of responses versus inputs. As such they fall into the same caveats, the training is as good as the training data you fed to it, and also the reward scheme that was set in the training program. On one hand, that we mean that for any physicla tasks, we would need sensors that are capable to actually feed the robot with good environmental variables. On the other hand, while some people would say AI model would not have human biases and are thus better suited for certain tasks, but are they? In the example above, what the model learnt was clearly affected by how we rewarded its actions and also what we allowed it to see. So it would certainly still carries the bias that the deisnger has when he/she designed the system.
+The takeaway from these experience is that reinforcement learning, or aritificial intelligence in general, is often exaggerated and misrepresented in general media. It is a magical thing to see some randomly intialized matricies to learn and adapt to tasks in the physical dimension, but at the same time they are not very different from linear regression: you fit a model of responses versus inputs. As such they fall into the same caveats, the training is as good as the training data you fed to it, and also the reward scheme that was set in the training program. On one hand, that means for any physicla tasks, we would need sensors that are capable of feeding the robot with good environmental variables. On the other hand, while some people would say AI models do not have human biases and are thus better suited for certain tasks, but are they? In the example above, what the model learnt was clearly affected by how we rewarded its actions and also what we allowed it to see. So it would certainly still carries the bias that the deisnger has when he/she designed the system. 
+
 So would you trust a Robocop to go around handing out tickets and handcuffing criminals? For me the answer is no. Because at the end of the day these systems are very likely controlled by whatever authority who's already in power, and that Robocop would certainly be tuned to do the job "perfectly" for the benefit of its designers. And history tells us that this never ends well. In a way, one could argue that this is not very different from the system we have today. Our legal and justice system is designed by those in power, and those who enforce it are encourged to do law's bidding and crush those who oppose it. But if one believes in free will (let's not enter the free will debate for now) and the capacity of man to act out of compassion and justice, then there are chances that our system will at some point head to a brighter state.
