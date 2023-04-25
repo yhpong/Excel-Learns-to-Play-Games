@@ -19,15 +19,15 @@ While this plain vanilla policy gradient algorithm sounds good on paper, I quick
 
 After much despair and thousands of epochs, I came across "Proximal Policy Optimization" (PPO) published by [Schulman et al in 2017] (https://arxiv.org/abs/1707.06347v2). Great resources on how to actually implement them can be found in [ICRL Blog Track](https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/). It basically tells you to what extend you can ajust the policy after gathering some experiences. With that implemented, my little games coded in Excel suddenly become achievable.
 
-So let's get into action. I started with a toy problem which is adopted from https://www.samyzaf.com/ML/rl/qmaze.html. The game is basically a 7X7 grid maze where our hero (M) needs to traverse and reach the Princess (P), and our hero can only choose from 1 of 4 actions at any time step: move up, down, left or right.
+So let's get into action. I started with a toy problem which is adopted from https://www.samyzaf.com/ML/rl/qmaze.html. The game is basically a 7X7 grid maze which our hero (M) needs to traverse to reach the Princess (P), and our hero can only choose from 1 of 4 actions at any time step: move up, down, left or right.
 
 ![Maze1](/Screenshots/Maze_Features.png)
 
-Let's start by giving our hero brain, or a policy network, which is a simple feed forward neural network with 16 hidden units, connected to a softmax output layer of 4 dimensions, corresponding to the 4 selectable actions.
+Let's start by giving our hero a brain, or a policy network, which is a simple feed forward neural network with 16 hidden units, connected to a softmax output layer of 4 dimensions, corresponding to the 4 selectable actions.
 
 At first I followed the blog-post and trained our hero with a reward scheme like this:
 1. Every time step carries a penalty.
-2. Moving into an obstacle is penalized. Step is still incremented by player's position isn't changed.
+2. Moving into an obstacle is penalized. Step is still incremented but player's position isn't changed.
 3. Re-visiting an already visited position is penalized.
 4. Successfully reaching the Princess is awarded.
 
@@ -40,7 +40,13 @@ However, when I trained this blindfolded hero, it took a long time to make any m
 
 5. Visiting a previously un-visited position is rewarded.
 
-With reward #5 added, he quickly managed to learn and reached 100% win rate pretty fast, in a total of 850 games divided into 7 batches. One reason why he learnt to play this maze so quickly is that it's not really a maze. In this small maze, the obstacles often constrain our hero to move in specific directions. Since moving into obstacles and backtracking are both penalized, he quickly learns that going foward is more rewarding. So possibilites of going off target is limited.
+With reward #5 added, he quickly managed to learn and reached 100% win rate pretty fast, in a total of 17 cycles, where each cycle he learns from 50 episodes. One reason why he learnt to play this maze so quickly is that it's not really a maze. In this small maze, the obstacles often constrain our hero to move in specific directions. Since moving into obstacles and backtracking are both penalized, he quickly learns that going foward is more rewarding. So possibilites of going off target is limited.
+
+
+
+![Maze_Solved](/Screenshots/Maze_solved.gif)
+
+![Maze_TrainProgress](/Screenshots/Maze_TrainingProgress.jpg)
 
 Things become much more challenging when I experimented with a bigger maze with a 7X13 grid as below:
 ![Larger Maze](/Screenshots/Maze_Compared.jpg)
