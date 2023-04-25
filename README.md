@@ -1,7 +1,7 @@
 # Excel-Learns-to-Play-Games
 Reinforcement Learning with Proximal Policy Optimization
 
-![MazeII](/Screenshots/MazeII_Solved.gif)
+![MazeII](/MazeII_Solved.gif)
 
 *This is more about me ranting than a technical discussion. If you are looking for resources to learning reinforcement learning, there are better resources out there, like [Lilian Weng's Blog](https://lilianweng.github.io/)*
 
@@ -23,7 +23,7 @@ So let's get into action. I started with a toy problem which is adopted from htt
 
 ![Maze1](/Screenshots/Maze_Features.png)
 
-Let's start by giving our hero a brain, or a policy network, which is a simple feed forward neural network with 16 hidden units, connected to a softmax output layer of 4 dimensions, corresponding to the 4 selectable actions.
+Let's start by giving our hero a brain, or a policy network, which is a simple feed forward neural network with 16 hidden units, connected to a softmax output layer of 4 dimensions, corresponding to the 4 selectable actions. The environmetal state variables that were passed to the player was a 7X7 matrix with 1 indicating the player position, and 0 otherwise, flattened to a length 49 vector. So at every time step, a length 49 vector is fed into our hero's policy network and he performs an action by drawing from the softmax's porbability distribution.
 
 At first I followed the blog-post and trained our hero with a reward scheme like this:
 1. Every time step carries a penalty.
@@ -31,10 +31,7 @@ At first I followed the blog-post and trained our hero with a reward scheme like
 3. Re-visiting an already visited position is penalized.
 4. Successfully reaching the Princess is awarded.
 
-This reward scheme makes a lot of sense, since it encourages the player to finish the game faster, and discourages it from meaningless actions like running into a wall and going back and forth. And obviously reaching its goal carries a reward. The environmetal states that were passed to the player were:
-1. A 7X7 matrix with 1 indicating the player position, and 0 otherwise, flattened to a length 49 vector.
-
-You can easily see why this is only a "toy" problem. Our hero knows in advance that the whole input space cannot be larger than 7X7. And he is basically blind to what's around him. Only by running into an obstacle and being punished for the action, would he learn to "not go right when my position is (1,7)". All he knows is that performing certain action at a certain location carries a penalty, and he learns to do less of it in his next play.
+This reward scheme makes a lot of sense, since it encourages the player to finish the game faster, and discourages it from meaningless actions like running into a wall and going back and forth. And obviously reaching its goal carries a reward. You can easily see why this is only a "toy" problem. Our hero knows in advance that the whole input space cannot be larger than 7X7. And he is basically blind to what's around him. Only by running into an obstacle and being punished for the action, would he learn to "not go right when my position is (1,7)". All he knows is that performing certain action at a certain location carries a penalty, and he learns to do less of it in his next play.
 
 However, when I trained this blindfolded hero, it took a long time to make any meaningful progress (mind you this is VBA). So to speed up his training program, I added an incentive for him to explore the maze faster: 
 
@@ -66,7 +63,7 @@ For the state variables, I also made him work more like a real person/robot, whe
 3. whether the 8 immediate cells surrouding him are blocked.
 4. whether the 8 immediate cells surrouding him were previously visited.
 
-So unlike last time where the whole 7X13 grid was encoded as states, now he only knows the immediate information surrounding him, just like how we would actually play a real maze. However the real game changer is state #4: he now has memory. He knows whether he has visited certain area already. By remembering whether there are un-explored spaces around him, combining this with reward #5, he would quikcly learn that exploration can pay off, which encourages him to step through that little window that leads to the Princess. And by increasing the reward of reaching the princess, it then quick learns to head straight to the princess without further ado.
+So unlike last time where the whole 7X13 grid was encoded as states, now he only knows the immediate information surrounding him, just like how we would actually play a real maze. However the real game changer is state variable #4: he now has memory. He knows whether he has visited certain area already. By recalling whether there are un-explored spaces around him, combining this with reward #5, he would quickly learn that exploration can pay off, which encourages him to step through that little window that leads to the Princess. And by increasing the reward of reaching the princess, it then quick learns to head straight to the princess without further ado.
 
 ![MazeII_progress](/Screenshots/MazeII_TrainingProgress_withvswithoutMemory.jpg)
 
