@@ -3,7 +3,7 @@ Reinforcement Learning with Proximal Policy Optimization
 
 ![MazeII](/Screenshots/MazeII_Solved.gif)
 
-*This is more of me ranting than beign a technical document. If you are looking for resources to learnign reinforcement learning, there are better resources out there, like [Lilian Weng's Blog](https://lilianweng.github.io/)
+*This is more of me ranting than beign a technical document. If you are looking for resources to learnign reinforcement learning, there are better resources out there, like [Lilian Weng's Blog](https://lilianweng.github.io/)*
 
 I have long procrastinated from studying reinforcement learning. Partly because of busy work schedule, partly because the math looks intimidating and partly because there are already great minds out there who coded the libraries for us. But with all the recent advancements, I don't want to have too much to catch up in the next few years, so I decided to bite the bullet, and really learnt the nitty gritty, coded everything up from scratch, in VBA!! So no libraries, no vectorization, no auto-differentiation. Every matrix math is done in for-loops, all the gradients and back propagation are done by hand!
 
@@ -13,7 +13,7 @@ I decided to design some games and let Excel learn to play them. I started direc
 3. The environment would reward or penalize the agent's action depending on the task.
 4. Repeat 2 & 3 until task is completed or time limit is reached.
 5. Adjust the policy with gradient ascent in a way that would maximize rewards.
-6. Start from step 2 again with adjusted policy.
+6. Repeat from step 2 with adjusted policy, until task can be completed with confidence.
 
 While this plain vanilla policy gradient algorithm sounds good on paper, I quickly learnt from experience that it's almost always impractical. The problem is that every time we let the agent interacts with the environment and learns from that single experience, we don't know to what extend do we need to adjust its policy based on this particular experience. If we adjust it by too much, its next play may then give him a different experience that contradicts the preivous ones, and it ended up readjusting its policy everytime and things never converge. In a game with many possible paths to take, it may well be possible that he'd never even finish the task to gather the final reward, and thus failing to learn the task. So unless the task or game is defined in a very small finite set of states, in which we could play out all the possible paths, store them in memory, then the agent could directly learn from memory which of these paths are more rewarding. But we know that's impossible.
 
