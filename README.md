@@ -63,6 +63,8 @@ For the state variables, I also made him work more like a real person/robot, whe
 3. whether the 8 immediate cells surrouding him are blocked.
 4. whether the 8 immediate cells surrouding him were previously visited.
 
+[!MazeII_States](/Screenshots/MazeII_States.jpg)
+
 So unlike last time where only poisition is know to him, now he also knows the immediate information surrounding him, just like how we would actually play a real maze. However the real game changer is state variable #4: he now has memory. He knows whether he has visited certain area already. By recalling whether there are un-explored spaces around him, combining this with reward #5, he would quickly learn that exploration can pay off, which encourages him to step through that little window that leads to the Princess. And by increasing the reward of reaching the Princess, it then quick learns to head straight to the princess without further ado.
 
 ![MazeII_progress](/Screenshots/MazeII_TrainingProgress_withvswithoutMemory.jpg)
