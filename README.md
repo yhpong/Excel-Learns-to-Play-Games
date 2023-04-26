@@ -3,7 +3,7 @@ Reinforcement Learning with Proximal Policy Optimization
 
 ![MazeII](/MazeII_Solved.gif)
 
-*This is more about me ranting than a technical discussion. If you are looking for resources to learning reinforcement learning, there are better resources out there, like [Lilian Weng's Blog](https://lilianweng.github.io/)*
+*This is more about me ranting than a technical discussion. If you are looking for resources to learn reinforcement learning, there are better resources out there, like [Lilian Weng's Blog](https://lilianweng.github.io/)*
 
 I have long procrastinated from studying reinforcement learning. Partly because of busy work schedule, partly because the math looks intimidating and partly because there are already great minds out there who coded the libraries for us. But with all the recent advancements, I don't want to have too much to catch up in the next few years, so I decided to bite the bullet, and really learnt the nitty gritty, coded everything up from scratch, in VBA!! So no libraries, no vectorization, no auto-differentiation. Every matrix math is done in for-loops, all the gradients and back propagation are done by hand!
 
