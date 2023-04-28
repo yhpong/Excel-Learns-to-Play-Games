@@ -21,7 +21,7 @@ Option Explicit
 '======================================================================================
 
 Private pOutputType As String
-Private pn_input As Long, pn_output As Long
+Private pn_input As Long, pn_output As Long, pn_unit As Long
 Private pn_layer As Long, pn_hidden() As Long, pLayerType() As String
 Private vWgts() As Variant, vBias As Variant
 Private pWOut() As Double, pbOut() As Double
@@ -55,6 +55,10 @@ End Property
 
 Property Get n_output() As Long
     n_output = pn_output
+End Property
+
+Property Get n_unit() As Long
+    n_unit = pn_unit
 End Property
 
 Property Get n_layer() As Long
@@ -106,6 +110,7 @@ Sub Clone(cNN As cNeuralNet)
     pOutputType = cNN.OutputType
     pn_input = cNN.n_input
     pn_output = cNN.n_output
+    pn_unit = cNN.n_unit
     pn_layer = cNN.n_layer
     pn_hidden = cNN.n_hidden
     pLayerType = cNN.LayerType
@@ -372,6 +377,7 @@ Dim tmp_x As Double
         Next j
     Next i
     
+    pn_unit = pn_output * (pn_input + 1)
     pn_hist = 0
     pADAM_count = 0
     pRMS_count = 0
@@ -422,6 +428,15 @@ Dim tmp_x As Double
         For j = 1 To n_hidden
             pWOut(i, j) = (-0.5 + Rnd()) * tmp_x
         Next j
+    Next i
+    
+    pn_unit = pn_output * (n_hidden + 1)
+    For i = 1 To pn_layer
+        If i > 1 Then
+            pn_unit = pn_unit + pn_hidden(i) * (pn_hidden(i - 1) + 1)
+        Else
+            pn_unit = pn_unit + pn_hidden(i) * (pn_input + 1)
+        End If
     Next i
     
 End Sub
@@ -1622,3 +1637,552 @@ Dim vtmp As Variant
     Next i
 End Sub
 
+
+
+'=====================================================================================================================================
+'Experiment with BFGS since it seems to perform batter for small problems like linear regresion and low dimension curve fitting
+'line search algorithm was copied from"Numerical Optimization" by Jorge Ncedal and Stephen Wright
+'=====================================================================================================================================
+
+
+'Convert network wgts to 1D vector for easier manipulation
+'isReverse, convert 1D vector back to network wgts when set to True
+Private Sub flatten_wgts(wgts_vec() As Double, Optional isGrad As Boolean = False, Optional isReverse As Boolean = False)
+Dim i As Long, j As Long, k As Long, m As Long, n As Long
+Dim n_input As Long, n_output As Long
+Dim iterate As Long
+Dim xW() As Double, xb() As Double
+    
+    If isReverse Then
+        
+        n = 0
+        For iterate = 1 To pn_layer
+            If isGrad Then
+                xW = vdWgts(iterate)
+                xb = vdBias(iterate)
+            Else
+                xW = vWgts(iterate)
+                xb = vBias(iterate)
+            End If
+            n_output = UBound(xW, 1)
+            n_input = UBound(xW, 2)
+            For i = 1 To n_input
+                For j = 1 To n_output
+                    n = n + 1
+                    xW(j, i) = wgts_vec(n)
+                Next j
+            Next i
+            For j = 1 To n_output
+                n = n + 1
+                xb(j) = wgts_vec(n)
+            Next j
+            If isGrad Then
+                vdWgts(iterate) = xW
+                vdBias(iterate) = xb
+            Else
+                vWgts(iterate) = xW
+                vBias(iterate) = xb
+            End If
+        Next iterate
+        
+        n_input = UBound(pWOut, 2)
+        If isGrad Then
+            For i = 1 To n_input
+                For j = 1 To pn_output
+                    n = n + 1
+                    dWOut(j, i) = wgts_vec(n)
+                Next j
+            Next i
+            For j = 1 To pn_output
+                n = n + 1
+                dbOut(j) = wgts_vec(n)
+            Next j
+        Else
+            For i = 1 To n_input
+                For j = 1 To pn_output
+                    n = n + 1
+                    pWOut(j, i) = wgts_vec(n)
+                Next j
+            Next i
+            For j = 1 To pn_output
+                n = n + 1
+                pbOut(j) = wgts_vec(n)
+            Next j
+        End If
+        
+        Exit Sub
+    End If
+
+    
+    ReDim wgts_vec(1 To pn_unit)
+    n = 0
+    For iterate = 1 To pn_layer
+        If isGrad Then
+            xW = vdWgts(iterate)
+            xb = vdBias(iterate)
+        Else
+            xW = vWgts(iterate)
+            xb = vBias(iterate)
+        End If
+        n_output = UBound(xW, 1)
+        n_input = UBound(xW, 2)
+        For i = 1 To n_input
+            For j = 1 To n_output
+                n = n + 1
+                wgts_vec(n) = xW(j, i)
+            Next j
+        Next i
+        For j = 1 To n_output
+            n = n + 1
+            wgts_vec(n) = xb(j)
+        Next j
+    Next iterate
+    
+    n_input = UBound(pWOut, 2)
+    If isGrad Then
+        For i = 1 To n_input
+            For j = 1 To pn_output
+                n = n + 1
+                wgts_vec(n) = dWOut(j, i)
+            Next j
+        Next i
+        For j = 1 To pn_output
+            n = n + 1
+            wgts_vec(n) = dbOut(j)
+        Next j
+    Else
+        For i = 1 To n_input
+            For j = 1 To pn_output
+                n = n + 1
+                wgts_vec(n) = pWOut(j, i)
+            Next j
+        Next i
+        For j = 1 To pn_output
+            n = n + 1
+            wgts_vec(n) = pbOut(j)
+        Next j
+    End If
+
+End Sub
+
+'Finite difference to approximate Hessian
+Private Function CalcHessian(x, y_tgt, strLossType)
+Dim i As Long, j As Long, k As Long, m As Long, n As Long, iterate As Long
+Dim ii As Long, jj As Long
+Dim y() As Double, grad_out() As Double
+Dim wgt_vec() As Double, grad_vec() As Double
+Dim wgt_vec_new() As Double, grad_vec_new() As Double
+Dim xHessian() As Double
+Dim tmp_x As Double
+Dim v As Variant
+
+    ReDim xHessian(1 To pn_unit, 1 To pn_unit)
+    
+    'Evalulate current gradients
+    y = FwdPass(x, storeOutput:=True)
+    If pOutputType = "SOFTMAX" Then
+        Call Backward(y, , y_tgt)
+    Else
+        grad_out = f_calcdEdy(y, y_tgt, strLossType)
+        Call Backward(y, grad_out)
+    End If
+    
+    'Save current wgts and gradients as vectors
+    Call flatten_wgts(wgt_vec, False, False)
+    Call flatten_wgts(grad_vec, True, False)
+    Call ResetWgtChg
+    Call ClearHist
+
+    For i = 1 To pn_unit
+        
+        'change single wgt
+        wgt_vec_new = wgt_vec
+        wgt_vec_new(i) = wgt_vec_new(i) + 0.0001
+        Call flatten_wgts(wgt_vec_new, False, True)
+        
+        'find new gradient after wgt change
+        y = FwdPass(x, storeOutput:=True)
+        If pOutputType = "SOFTMAX" Then
+            Call Backward(y, , y_tgt)
+        Else
+            grad_out = f_calcdEdy(y, y_tgt, strLossType)
+            Call Backward(y, grad_out)
+        End If
+        Call flatten_wgts(grad_vec_new, True, False)
+        Call ResetWgtChg
+        Call ClearHist
+        
+        'restore old wgt
+        Call flatten_wgts(wgt_vec, False, True)
+        
+        'input changes in gradients into Hessian
+        For j = i To pn_unit
+            xHessian(i, j) = (grad_vec_new(j) - grad_vec(j)) / 0.0001
+            xHessian(j, i) = xHessian(i, j)
+        Next j
+        
+    Next i
+    
+    CalcHessian = xHessian
+    
+End Function
+
+
+'Guess initial Hessian according to  Eq(6.20)
+Private Function HessianGuess(x, y_tgt, strLossType)
+Dim i As Long, j As Long, k As Long, m As Long, n As Long
+Dim y() As Double, grad_out() As Double
+Dim wgt_vec() As Double, grad_vec() As Double
+Dim wgt_vec_new() As Double, grad_vec_new() As Double
+Dim xHessian() As Double
+Dim tmp_x As Double, tmp_y As Double
+Dim s_vec() As Double, y_vec() As Double
+
+    'Evalulate current gradients
+    y = FwdPass(x, storeOutput:=True)
+    If pOutputType = "SOFTMAX" Then
+        Call Backward(y, , y_tgt)
+    Else
+        grad_out = f_calcdEdy(y, y_tgt, strLossType)
+        Call Backward(y, grad_out)
+    End If
+    
+    'Save current wgts and gradients as vectors
+    Call flatten_wgts(wgt_vec, False, False)
+    Call flatten_wgts(grad_vec, True, False)
+    Call ResetWgtChg
+    Call ClearHist
+    
+    'try updating wgts
+    ReDim s_vec(1 To pn_unit)
+    ReDim wgt_vec_new(1 To pn_unit)
+    For i = 1 To pn_unit
+        s_vec(i) = -0.001 * grad_vec(i)
+        wgt_vec_new(i) = wgt_vec(i) + s_vec(i)
+    Next i
+    
+    'import new wgts into network and evaluate new gradients
+    Call flatten_wgts(wgt_vec_new, False, True)
+    y = FwdPass(x, storeOutput:=True)
+    If pOutputType = "SOFTMAX" Then
+        Call Backward(y, , y_tgt)
+    Else
+        grad_out = f_calcdEdy(y, y_tgt, strLossType)
+        Call Backward(y, grad_out)
+    End If
+    Call flatten_wgts(grad_vec_new, True, False)
+    Call ResetWgtChg
+    Call ClearHist
+    
+    'Evaluate y
+    ReDim y_vec(1 To pn_unit)
+    For i = 1 To pn_unit
+        y_vec(i) = grad_vec_new(i) - grad_vec(i)
+    Next i
+    
+    'Guess initial Hessian (y^T s) / (y^T y)
+    tmp_x = 0: tmp_y = 0
+    ReDim xHessian(1 To pn_unit, 1 To pn_unit)
+    For i = 1 To pn_unit
+        tmp_x = tmp_x + s_vec(i) * y_vec(i)
+        tmp_y = tmp_y + y_vec(i) * y_vec(i)
+    Next i
+    For i = 1 To pn_unit
+        xHessian(i, i) = tmp_x / tmp_y
+    Next i
+    
+    'retore old wgts in network
+    Call flatten_wgts(wgt_vec, False, True)
+    
+    HessianGuess = xHessian
+    
+End Function
+
+
+'Fit with BFGS, notation used here are from Wikipedia for easy reference
+'https://en.wikipedia.org/wiki/Broyden%E2%80%93Fletcher%E2%80%93Goldfarb%E2%80%93Shanno_algorithm)
+Sub FitBFGS(x, y_tgt, Optional n_epoch As Long = 5, _
+            Optional strLossType As String = "SSE", _
+            Optional err_tol As Double = 0.000000001, _
+            Optional err_tol_rel As Double = 0.0001, _
+            Optional statusShown As Long = 10)
+Dim i As Long, j As Long, k As Long, m As Long, n As Long, iterate As Long
+Dim ii As Long, jj As Long, i_epoch As Long
+Dim converge_count As Long, n_linesearchfail As Long
+Dim y() As Double, grad_out() As Double
+Dim x_err As Double, x_err_prv As Double, x_curve As Double, x_curve_prv As Double
+Dim step_size As Double
+Dim wgt_vec() As Double, grad_vec() As Double
+Dim wgt_vec_new() As Double, grad_vec_new() As Double
+Dim xHessian As Variant, xDir() As Double
+Dim tmp_x As Double
+Dim y_vec() As Double, s_vec() As Double, Hy_vec() As Double, sy As Double
+
+    strLossType = UCase(Trim(strLossType))
+    If pn_output = 1 And strLossType = "CROSSENTROPY" And pOutputType <> "SIGMOID" Then
+        Debug.Print "cNeuralNet: Train: CROSSENTROPY must be used with SIGMOID output layer for binary classification."
+        End
+    End If
+    
+    converge_count = 0
+    n_linesearchfail = 0
+    ReDim pTrainProgress(1 To 3, 1 To 1)
+    
+    'Initialize Hessian
+    xHessian = HessianGuess(x, y_tgt, strLossType)  'rough guess
+'    xHessian = CalcHessian(x, y_tgt, strLossType)  'finite difference
+'    ReDim xHessian(1 To pn_unit, 1 To pn_unit) 'Simple Identity
+'    For i = 1 To pn_unit
+'        xHessian(i, i) = 1
+'    Next i
+     
+    'Evalulate current objective and gradients
+    y = FwdPass(x, storeOutput:=True)
+    x_err_prv = f_calcLoss(y, y_tgt, strLossType)
+    If pOutputType = "SOFTMAX" Then
+        Call Backward(y, , y_tgt)
+    Else
+        grad_out = f_calcdEdy(y, y_tgt, strLossType)
+        Call Backward(y, grad_out)
+    End If
+    
+    'Save current wgts and gradients as vectors
+    Call flatten_wgts(wgt_vec, False, False)
+    Call flatten_wgts(grad_vec, True, False)
+    Call ResetWgtChg
+    Call ClearHist
+    
+    For i_epoch = 1 To n_epoch
+
+        DoEvents
+        If (i_epoch - 1) Mod statusShown = 0 Then
+            Application.StatusBar = "cNeuralNet: FitBFGS: Epoch " & i_epoch & "/" & n_epoch & "..."
+        End If
+
+        'Compute direction
+        ReDim xDir(1 To pn_unit)
+        For i = 1 To pn_unit
+            tmp_x = 0
+            For j = 1 To pn_unit
+                tmp_x = tmp_x + xHessian(i, j) * grad_vec(j)
+            Next j
+            xDir(i) = -tmp_x
+        Next i
+
+        x_curve = 0
+        For i = 1 To pn_unit
+            x_curve = x_curve + xDir(i) * grad_vec(i)
+        Next i
+        
+        'wolfe line seawrch algorithm, Algorithm3.5 from "Numerical Optimization, Nocedal"
+        step_size = BFGS_LineSearch(x, y_tgt, strLossType, x_err_prv, x_curve, wgt_vec, grad_vec, xDir)
+        
+        'Apply step size
+        Call BFGS_ApplyStepSize(step_size, x, y_tgt, strLossType, _
+                                wgt_vec, grad_vec, xDir, _
+                                x_err, wgt_vec_new, grad_vec_new)
+        
+        'Compute new Hessian
+        sy = 0
+        ReDim s_vec(1 To pn_unit)
+        ReDim y_vec(1 To pn_unit)
+        For i = 1 To pn_unit
+            s_vec(i) = step_size * xDir(i)
+            y_vec(i) = grad_vec_new(i) - grad_vec(i)
+            sy = sy + s_vec(i) * y_vec(i)
+        Next i
+        
+        ReDim Hy_vec(1 To pn_unit)
+        For i = 1 To pn_unit
+            tmp_x = 0
+            For j = 1 To pn_unit
+                tmp_x = tmp_x + xHessian(i, j) * y_vec(j)
+            Next j
+            Hy_vec(i) = tmp_x
+        Next i
+        
+        tmp_x = 0
+        For i = 1 To pn_unit
+            tmp_x = tmp_x + y_vec(i) * Hy_vec(i)
+        Next i
+        tmp_x = (sy + tmp_x) / (sy * sy)
+
+        For i = 1 To pn_unit
+            For j = 1 To pn_unit
+                xHessian(i, j) = xHessian(i, j) + tmp_x * s_vec(i) * s_vec(j) - (Hy_vec(i) * s_vec(j) + s_vec(i) * Hy_vec(j)) / sy
+            Next j
+        Next i
+
+        'Evalulate this update
+        ReDim Preserve pTrainProgress(1 To 3, 1 To i_epoch)
+        pTrainProgress(1, i_epoch) = i_epoch
+        pTrainProgress(2, i_epoch) = x_err
+        pTrainProgress(3, i_epoch) = step_size
+
+        'Check for convergence
+        If (x_err <= x_err_prv) And ((x_err_prv - x_err) <= (err_tol_rel * Abs(x_err_prv)) Or x_err <= err_tol) Then
+            converge_count = converge_count + 1
+        Else
+            converge_count = 0
+        End If
+        If converge_count >= 5 Then Exit For
+
+        x_err_prv = x_err
+        For i = 1 To pn_unit
+            wgt_vec(i) = wgt_vec_new(i)
+            grad_vec(i) = grad_vec_new(i)
+        Next i
+
+    Next i_epoch
+
+    Application.StatusBar = False
+End Sub
+
+
+
+
+
+'=====================================
+'Algorithm 3.5 (Line Search Algorithm)
+'=====================================
+'Note that during this algorithm, the network wgts keep getting changed, but wgt_vec() is not changed
+'so we can always go back to use wgt_vec() to restore network wgts
+Function BFGS_LineSearch(x, y_tgt, strLossType As String, x_err_start As Double, x_curve_start As Double, _
+                wgt_vec() As Double, grad_vec() As Double, xDir() As Double) As Double
+Dim i As Long, j As Long, k As Long, m As Long, n As Long, iterate As Long
+Dim ii As Long, jj As Long, i_epoch As Long
+Dim converge_count As Long, n_linesearchfail As Long
+Dim y() As Double, grad_out() As Double
+Dim x_err As Double, x_err_prv As Double
+Dim step_size As Double, step_size_max As Double, step_size_best As Double, step_size_prv As Double
+Dim wgt_vec_new() As Double, grad_vec_new() As Double
+Dim x_err_new As Double
+Dim tmp_x As Double, x_curve As Double, wolfe_tmp_y As Double
+
+    x_err_prv = x_err_start
+    step_size_max = 10
+    step_size_prv = 0
+    step_size = 1
+    For iterate = 1 To 20
+    
+        'Evaluate current step size
+        Call BFGS_ApplyStepSize(step_size, x, y_tgt, strLossType, _
+                                wgt_vec, grad_vec, xDir, _
+                                x_err, wgt_vec_new, grad_vec_new)
+        
+        x_curve = 0
+        For i = 1 To pn_unit
+            x_curve = x_curve + xDir(i) * grad_vec_new(i)
+        Next i
+        
+        If (x_err > (x_err_start + 0.0001 * step_size * x_curve_start) Or (x_err >= x_err_prv And iterate > 1)) Then
+            step_size = BFGS_LineSearch_Zoom(step_size_prv, step_size, _
+                                x, y_tgt, strLossType, wgt_vec, grad_vec, xDir, _
+                                x_err_prv, x_err_start, x_curve_start)
+            Exit For
+        End If
+        
+        If Abs(x_curve) <= (-0.9 * x_curve_start) Then
+            Exit For
+        End If
+        
+        If x_curve >= 0 Then
+            step_size = BFGS_LineSearch_Zoom(step_size, step_size_prv, _
+                                x, y_tgt, strLossType, wgt_vec, grad_vec, xDir, _
+                                x_err, x_err_start, x_curve_start)
+            Exit For
+        End If
+        
+        step_size = step_size + (step_size_max - step_size) * 0.5
+        x_err_prv = x_err
+        
+    Next iterate
+    
+    BFGS_LineSearch = step_size
+
+End Function
+
+
+'======================
+'Algorithm 3.6 (zoom)
+'======================
+Private Function BFGS_LineSearch_Zoom(step_size_lo As Double, step_size_hi As Double, x, y_tgt, strLossType As String, _
+                            wgt_vec() As Double, grad_vec() As Double, xDir() As Double, _
+                            x_err_lo As Double, x_err_start As Double, x_curve_start As Double) As Double
+Dim i As Long, j As Long, k As Long, m As Long, n As Long, iterate As Long
+Dim ii As Long, jj As Long, i_epoch As Long
+Dim converge_count As Long, n_linesearchfail As Long
+Dim y() As Double, grad_out() As Double
+Dim x_err As Double, x_err_prv As Double, x_err_search As Double
+Dim step_size As Double, step_size_max As Double, step_size_best As Double, step_size_prv As Double
+Dim wgt_vec_new() As Double, grad_vec_new() As Double
+Dim x_err_new As Double
+Dim tmp_x As Double, x_curve As Double, x_curve_new As Double
+Dim y_vec() As Double, s_vec() As Double, Hy_vec() As Double, sy As Double
+Dim isFound As Boolean
+
+    For iterate = 1 To 100
+    
+        step_size = (step_size_lo + step_size_hi) * 0.5
+        
+        'Evaluate current step size
+        Call BFGS_ApplyStepSize(step_size, x, y_tgt, strLossType, _
+                                wgt_vec, grad_vec, xDir, _
+                                x_err, wgt_vec_new, grad_vec_new)
+
+        x_curve = 0
+        For i = 1 To pn_unit
+            x_curve = x_curve + xDir(i) * grad_vec_new(i)
+        Next i
+        
+        If (x_err > (x_err_start + 0.0001 * step_size * x_curve_start) Or x_err >= x_err_lo) Then
+            step_size_hi = step_size
+        Else
+            
+            If Abs(x_curve) <= (-0.9 * x_curve_start) Then
+                Exit For
+            End If
+            If x_curve * (step_size_hi - step_size_lo) >= 0 Then
+                step_size_hi = step_size_lo
+            End If
+            step_size_lo = step_size
+            x_err_lo = x_err
+        End If
+        
+    Next iterate
+    
+    BFGS_LineSearch_Zoom = step_size
+    
+End Function
+
+
+'Apply step size to update network
+'The outputs are x_err, wgt_vec_new() and grad_vec_new()
+Private Sub BFGS_ApplyStepSize(step_size, x, y_tgt, strLossType As String, _
+                                wgt_vec() As Double, grad_vec() As Double, xDir() As Double, _
+                                x_err As Double, wgt_vec_new() As Double, grad_vec_new() As Double)
+Dim i As Long, j As Long, k As Long, m As Long, n As Long
+Dim y() As Double, grad_out() As Double
+Dim tmp_x As Double, x_curve As Double
+
+    'Update wgts and insert them into network
+    ReDim wgt_vec_new(1 To pn_unit)
+    For i = 1 To pn_unit
+        wgt_vec_new(i) = wgt_vec(i) + step_size * xDir(i)
+    Next i
+    Call flatten_wgts(wgt_vec_new, isGrad:=False, isReverse:=True)
+    
+    'Evalulate loss function and new gradients
+    y = FwdPass(x, storeOutput:=True)
+    x_err = f_calcLoss(y, y_tgt, strLossType)
+    If pOutputType = "SOFTMAX" Then
+        Call Backward(y, , y_tgt)
+    Else
+        grad_out = f_calcdEdy(y, y_tgt, strLossType)
+        Call Backward(y, grad_out)
+    End If
+    Call flatten_wgts(grad_vec_new, True, isReverse:=False)
+    Call ResetWgtChg
+    Call ClearHist
+    
+End Sub
