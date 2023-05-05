@@ -870,7 +870,7 @@ End Sub
 'outputs a scalar which is the average k-fold validation error
 'n_fold     number of validation sets
 'strLossCV  loss function used in measuring cross-validation performance. Default is the same as strLossType
-Function FitCV(x, y_tgt, Optional n_fold As Long = 10, Optional n_epoch As Long = 5, Optional batch_size As Long = -1, _
+Function FitCV(x, y_tgt, Optional n_fold As Long = 10, Optional n_epoch As Long = 5, Optional n_batch As Long = 1, _
             Optional learn_rate As Double = 0.0001, _
             Optional strLossType As String = "SSE", Optional strLossCV As String = "", _
             Optional err_tol As Double = 0.000000001, _
@@ -879,7 +879,7 @@ Function FitCV(x, y_tgt, Optional n_fold As Long = 10, Optional n_epoch As Long 
             Optional learnSchedule As String = "", _
             Optional statusShown As Long = 10)
 Dim i As Long, j As Long, k As Long, m As Long, n As Long, ii As Long, jj As Long
-Dim n_len As Long, n_input As Long, n_output As Long
+Dim n_len As Long, n_input As Long, n_output As Long, batch_size As Long
 Dim i_fold As Long, fold_size As Long
 Dim x_idx() As Long, x_idx_fit() As Long, x_idx_test() As Long
 Dim x_err As Double, x_err_min As Double, x_err_kfold As Double
@@ -936,7 +936,7 @@ Dim strLossCV2 As String
         'Fit model on training set
         x_sub = SubsetIdx(x, x_idx:=x_idx_fit)
         y_tgt_sub = SubsetIdx(y_tgt, x_idx:=x_idx_fit)
-        Call cNNtest.Fit(x_sub, y_tgt_sub, n_epoch:=n_epoch, batch_size:=batch_size, _
+        Call cNNtest.Fit(x_sub, y_tgt_sub, n_epoch:=n_epoch, n_batch:=n_batch, _
                         learn_rate:=learn_rate, strLossType:=strLossType, _
                         err_tol:=err_tol, err_tol_rel:=err_tol_rel, _
                         learnSchedule:=learnSchedule, _
@@ -981,7 +981,7 @@ End Function
 'useSpeedUp     can be either "", "RMS" or "ADAM"
 'learnSchedule  can be "", "DECAY", or "AGGRESSIVE"
 'statusShown    show progress in status bar every n epochs
-Sub Fit(x, y_tgt, Optional n_epoch As Long = 5, Optional batch_size As Long = -1, _
+Sub Fit(x, y_tgt, Optional n_epoch As Long = 5, Optional n_batch As Long = 1, _
             Optional learn_rate As Double = 0.0001, _
             Optional strLossType As String = "SSE", _
             Optional err_tol As Double = 0.000000001, _
@@ -996,7 +996,8 @@ Dim y() As Double
 Dim grad_out() As Double
 Dim x_err As Double, x_err_prv As Double
 Dim step_size As Double
-Dim batch_count As Long, converge_count As Long
+Dim batch_count As Long, converge_count As Long, batchIdx() As Long
+Dim batch_size As Long
 
     step_size = learn_rate
     strLossType = UCase(Trim(strLossType))
@@ -1011,6 +1012,12 @@ Dim batch_count As Long, converge_count As Long
     x_err_prv = Exp(70)
     ReDim pTrainProgress(1 To 3, 1 To 1)
 
+    ReDim batchIdx(1 To n_len)
+    For i = 1 To n_len
+        batchIdx(i) = i
+    Next i
+    batch_size = Int(n_len / n_batch)
+    
     For i_epoch = 1 To n_epoch
         
         DoEvents
@@ -1020,7 +1027,7 @@ Dim batch_count As Long, converge_count As Long
         
         Call CacheCurrentWgt
         
-        If batch_size < 0 Or batch_size >= n_len Then
+        If n_batch <= 1 Then
             y = FwdPass(x, storeOutput:=True)
             If pOutputType = "SOFTMAX" Then
                 Call Backward(y, , y_tgt)
@@ -1035,6 +1042,9 @@ Dim batch_count As Long, converge_count As Long
             Call ClearHist
             
         Else
+            
+            Call Shuffle(batchIdx)
+        
             ii = 0
             jj = 0
             Do While (jj + 1) <= n_len
@@ -1047,11 +1057,12 @@ Dim batch_count As Long, converge_count As Long
                 ReDim yy(1 To pn_output, 1 To (jj - ii + 1))
                 For m = ii To jj
                     k = m - ii + 1
+                    j = batchIdx(m)
                     For i = 1 To pn_input
-                        xx(i, k) = x(i, m)
+                        xx(i, k) = x(i, j)
                     Next i
                     For i = 1 To pn_output
-                        yy(i, k) = y_tgt(i, m)
+                        yy(i, k) = y_tgt(i, j)
                     Next i
                 Next m
                 batch_count = batch_count + 1
@@ -1079,6 +1090,11 @@ Dim batch_count As Long, converge_count As Long
         pTrainProgress(2, i_epoch) = x_err
         pTrainProgress(3, i_epoch) = step_size
         
+        DoEvents
+        If (i_epoch - 1) Mod statusShown = 0 Then
+            Debug.Print "cNeuralNet: Train: Epoch " & i_epoch & "/" & n_epoch & ", cost = " & Format(x_err, "0.0000E+00") & ", step size=" & Format(step_size, "0.0000E+00")
+        End If
+        
         'Check for convergence
         If (x_err <= x_err_prv) And ((x_err_prv - x_err) <= (err_tol_rel * Abs(x_err_prv)) Or x_err <= err_tol) Then
             converge_count = converge_count + 1
@@ -1096,6 +1112,8 @@ Dim batch_count As Long, converge_count As Long
                 step_size = step_size * 0.1
                 Call RestoreWgt
                 If UCase(useSpeedUp) = "ADAM" Then Call ADAM_Init
+                DoEvents
+                Debug.Print "cost increases, discard current epoch and decrease learning rate."
                 If step_size < 0.00000000001 Then Exit For
             End If
         ElseIf UCase(learnSchedule) = "DECAY" Then
