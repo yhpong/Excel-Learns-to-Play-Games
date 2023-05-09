@@ -44,6 +44,8 @@ Private pn_row As Long, pn_hist As Long
 Private pTrainProgress() As Double
 Private pADAM_count As Long, pRMS_count As Long
 
+Private visDrop() As Variant
+
 
 Property Get OutputType() As String
     OutputType = pOutputType
@@ -152,39 +154,44 @@ Dim tmp_x As Double
     End If
     
     For iterate = 1 To pn_layer
-        dWgt = vdWgts(iterate)
-        dBias = vdBias(iterate)
-        n_output = UBound(dBias, 1)
-        n_input = UBound(dWgt, 2)
+    
+        If pLayerType(iterate) <> "DROPOUT" Then
+    
+            dWgt = vdWgts(iterate)
+            dBias = vdBias(iterate)
+            n_output = UBound(dBias, 1)
+            n_input = UBound(dWgt, 2)
+            
+            If pRMS_count = 0 Then
+                ReDim dW2(1 To n_output, 1 To n_input)
+                ReDim db2(1 To n_output)
+                For j = 1 To n_input
+                    For i = 1 To n_output
+                        dW2(i, j) = dWgt(i, j) ^ 2
+                    Next i
+                Next j
+    
+                For i = 1 To n_output
+                    db2(i) = dBias(i) ^ 2
+                Next i
+    
+            Else
+                dW2 = vdW2(iterate)
+                db2 = vdB2(iterate)
+                For j = 1 To n_input
+                    For i = 1 To n_output
+                        dW2(i, j) = 0.9 * dW2(i, j) + 0.1 * dWgt(i, j) ^ 2
+                    Next i
+                Next j
+                For i = 1 To n_output
+                    db2(i) = 0.9 * db2(i) + 0.1 * dBias(i) ^ 2
+                Next i
+            End If
+    
+            vdW2(iterate) = dW2
+            vdB2(iterate) = db2
         
-        If pRMS_count = 0 Then
-            ReDim dW2(1 To n_output, 1 To n_input)
-            ReDim db2(1 To n_output)
-            For j = 1 To n_input
-                For i = 1 To n_output
-                    dW2(i, j) = dWgt(i, j) ^ 2
-                Next i
-            Next j
-
-            For i = 1 To n_output
-                db2(i) = dBias(i) ^ 2
-            Next i
-
-        Else
-            dW2 = vdW2(iterate)
-            db2 = vdB2(iterate)
-            For j = 1 To n_input
-                For i = 1 To n_output
-                    dW2(i, j) = 0.9 * dW2(i, j) + 0.1 * dWgt(i, j) ^ 2
-                Next i
-            Next j
-            For i = 1 To n_output
-                db2(i) = 0.9 * db2(i) + 0.1 * dBias(i) ^ 2
-            Next i
         End If
-
-        vdW2(iterate) = dW2
-        vdB2(iterate) = db2
         
     Next iterate
 
@@ -277,28 +284,32 @@ Dim tmp_x As Double
         dBias = vdBias(iterate)
         n_output = UBound(dWgt, 1)
         n_input = UBound(dWgt, 2)
-
-        dW1 = vdW1(iterate)
-        db1 = vdB1(iterate)
-        dW2 = vdW2(iterate)
-        db2 = vdB2(iterate)
-        For j = 1 To n_input
+        
+        If pLayerType(iterate) <> "DROPOUT" Then
+        
+            dW1 = vdW1(iterate)
+            db1 = vdB1(iterate)
+            dW2 = vdW2(iterate)
+            db2 = vdB2(iterate)
+        
+            For j = 1 To n_input
+                For i = 1 To n_output
+                    dW1(i, j) = 0.9 * dW1(i, j) + 0.1 * dWgt(i, j)
+                    dW2(i, j) = 0.999 * dW2(i, j) + 0.001 * dWgt(i, j) ^ 2
+                Next i
+            Next j
+            
             For i = 1 To n_output
-                dW1(i, j) = 0.9 * dW1(i, j) + 0.1 * dWgt(i, j)
-                dW2(i, j) = 0.999 * dW2(i, j) + 0.001 * dWgt(i, j) ^ 2
+                db1(i) = 0.9 * db1(i) + 0.1 * dBias(i)
+                db2(i) = 0.999 * db2(i) + 0.001 * dBias(i) ^ 2
             Next i
-        Next j
+            
+            vdW1(iterate) = dW1
+            vdB1(iterate) = db1
+            vdW2(iterate) = dW2
+            vdB2(iterate) = db2
         
-        For i = 1 To n_output
-            db1(i) = 0.9 * db1(i) + 0.1 * dBias(i)
-            db2(i) = 0.999 * db2(i) + 0.001 * dBias(i) ^ 2
-        Next i
-
-        vdW1(iterate) = dW1
-        vdB1(iterate) = db1
-        vdW2(iterate) = dW2
-        vdB2(iterate) = db2
-        
+        End If
     Next iterate
     
     n_input = UBound(dWOut, 2)
@@ -342,12 +353,39 @@ End Sub
 'clear intermediate outputs from memory
 Sub ClearHist()
     pn_hist = 0
-    Erase vh_out, px_in
+    Erase vh_out, px_in, visDrop
 End Sub
 
 'Reset gradients
 Sub ResetWgtChg()
     Erase dWOut, dbOut, vdWgts, vdBias
+End Sub
+
+
+Sub InitWgtChg()
+Dim i As Long, j As Long, k As Long, m As Long, n As Long
+Dim iterate As Long, n_hidden As Long
+Dim xW() As Double, xb() As Double
+
+    ReDim vdWgts(1 To pn_layer)
+    ReDim vdBias(1 To pn_layer)
+    
+    m = pn_input
+    For iterate = 1 To pn_layer
+        n_hidden = pn_hidden(iterate)
+        
+        ReDim xW(1 To n_hidden, 1 To m)
+        ReDim xb(1 To n_hidden)
+        
+        vdWgts(iterate) = xW
+        vdBias(iterate) = xb
+        
+        m = n_hidden
+    Next iterate
+    
+    ReDim dWOut(1 To pn_output, 1 To m)
+    ReDim dbOut(1 To pn_output)
+    
 End Sub
 
 'Initialize with one input layer and one output layer of specified activation function
@@ -386,7 +424,7 @@ End Sub
 
 
 'Insert a hidden layer to current network, layer is inserted between the last hidden layer and the output layer
-Sub AddLayer(n_hidden As Long, Optional strType As String = "SIGMOID")
+Sub AddLayer(n_hidden As Long, Optional strType As String = "SIGMOID", Optional DropOut As Double = 0)
 Dim i As Long, j As Long, k As Long, m As Long, n As Long
 Dim xW() As Double, xb() As Double
 Dim tmp_x As Double
@@ -405,44 +443,64 @@ Dim tmp_x As Double
         m = UBound(vBias(pn_layer - 1), 1)
     End If
     
-    tmp_x = Sqr(2 / m)
-    pn_hidden(pn_layer) = n_hidden
-    pLayerType(pn_layer) = UCase(Trim(strType))
-    ReDim xW(1 To n_hidden, 1 To m)
-    ReDim xb(1 To n_hidden)
-    For i = 1 To n_hidden
-        xb(i) = (-0.1 + Rnd() * 0.2) * tmp_x
-        For j = 1 To m
-            xW(i, j) = (-0.5 + Rnd()) * tmp_x
-        Next j
-    Next i
+    If UCase(Trim(strType)) = "DROPOUT" Then
+        'for dropout layer, use first element
+        'of vBias to save dropout rate
+        pn_hidden(pn_layer) = m
+        pLayerType(pn_layer) = UCase(Trim(strType))
+        ReDim xb(1 To m)
+        ReDim xW(1 To m, 1 To m)
+        For i = 1 To m
+            xW(i, i) = 1
+        Next i
+        xb(1) = DropOut
+        n = m
+    Else
+        tmp_x = Sqr(2 / m)
+        pn_hidden(pn_layer) = n_hidden
+        pLayerType(pn_layer) = UCase(Trim(strType))
+        ReDim xW(1 To n_hidden, 1 To m)
+        ReDim xb(1 To n_hidden)
+        For i = 1 To n_hidden
+            xb(i) = 0
+            For j = 1 To m
+                xW(i, j) = (-0.5 + Rnd()) * tmp_x
+            Next j
+        Next i
+        n = n_hidden
+    End If
     
     vWgts(pn_layer) = xW
     vBias(pn_layer) = xb
     
     'Reconnect output layer to new hidden layer
-    tmp_x = Sqr(2 / n_hidden)
-    ReDim pWOut(1 To pn_output, 1 To n_hidden)
-    For i = 1 To pn_output
-        pbOut(i) = (-0.1 + Rnd() * 0.2) * tmp_x
-        For j = 1 To n_hidden
-            pWOut(i, j) = (-0.5 + Rnd()) * tmp_x
-        Next j
-    Next i
+    'reset weights if sizes are not compatible
+    If n <> UBound(pWOut, 2) Then
+        tmp_x = Sqr(2 / n)
+        ReDim pWOut(1 To pn_output, 1 To n)
+        For i = 1 To pn_output
+            pbOut(i) = 0
+            For j = 1 To n
+                pWOut(i, j) = (-0.5 + Rnd()) * tmp_x
+            Next j
+        Next i
+    End If
     
-    pn_unit = pn_output * (n_hidden + 1)
+    pn_unit = pn_output * (n + 1)
     For i = 1 To pn_layer
-        If i > 1 Then
-            pn_unit = pn_unit + pn_hidden(i) * (pn_hidden(i - 1) + 1)
-        Else
-            pn_unit = pn_unit + pn_hidden(i) * (pn_input + 1)
+        If pLayerType(i) <> "DROPOUT" Then
+            If i > 1 Then
+                pn_unit = pn_unit + pn_hidden(i) * (pn_hidden(i - 1) + 1)
+            Else
+                pn_unit = pn_unit + pn_hidden(i) * (pn_input + 1)
+            End If
         End If
     Next i
     
 End Sub
 
 
-'Forward pass with input x
+'Forward pass with input x(1:pn_input, 1:n)
 'Returns double array y() of dimension y(1:pn_output, 1:n), where n is same as length of x
 'If storeOutput is set to True, intermediate activation and input x is stored
 Function FwdPass(x, Optional storeOutput As Boolean = False)
@@ -455,11 +513,13 @@ Dim v As Variant
 Dim strType As String
 Dim y() As Double
 Dim n_hist_prv As Long
+Dim isDrop() As Boolean, n_drop As Long, tmp_x As Double, tmp_y As Double
+Dim boolean_tmp() As Boolean
 
     n_len = UBound(x, 2)
     n_input = UBound(x, 1)
     If n_input <> pn_input Then
-        Debug.Print "cNeuralNet:FwdPass: input size incorrect. n_input=" & n_input & ", pn_input=" & pn_input
+        Debug.Print "cNeuralNet: FwdPass: input size incorrect. n_input=" & n_input & ", pn_input=" & pn_input
         End
     End If
     
@@ -469,6 +529,7 @@ Dim n_hist_prv As Long
     'store output of each hidden layer
     If storeOutput And n_hist_prv = 0 Then
         ReDim vh_out(1 To pn_layer)
+        ReDim visDrop(1 To pn_layer)
     End If
     
     ReDim xin(1 To n_input, 1 To n_len)
@@ -505,30 +566,72 @@ Dim n_hist_prv As Long
         strType = pLayerType(iterate)
         
         ReDim h(1 To n_hidden, 1 To n_len)
-        v = WorksheetFunction.MMult(xW, xin)
-        If n_hidden = 1 Then
-            For k = 1 To n_len
-                h(1, k) = f_Activate(v(k) + xb(1), strType)
-            Next k
+        
+        If strType = "DROPOUT" Then
+            
+            'for dropout layer, only apply dropout
+            'during training, i.e. when storeOutput=True
+            'remember which instances are dropped for
+            'later use in backpropagation
+            If storeOutput And xb(1) > 0 Then
+                
+                ReDim isDrop(1 To n_hidden, 1 To n_len)
+                tmp_x = 1 / (1 - xb(1))
+                For k = 1 To n_len
+                    For i = 1 To n_hidden
+                        If Rnd() >= xb(1) Then
+                            h(i, k) = xin(i, k) * tmp_x
+                        Else
+                            isDrop(i, k) = True
+                        End If
+                    Next i
+                Next k
+                
+                If n_hist_prv = 0 Then
+                    visDrop(iterate) = isDrop
+                Else
+                    boolean_tmp = visDrop(iterate)
+                    ReDim Preserve boolean_tmp(1 To n_hidden, 1 To n_hist_prv + n_len)
+                    For k = 1 To n_len
+                        For i = 1 To n_hidden
+                            boolean_tmp(i, n_hist_prv + k) = isDrop(i, k)
+                        Next i
+                    Next k
+                    visDrop(iterate) = boolean_tmp
+                End If
+                
+            Else
+                h = xin
+            End If
+            
         Else
-            For k = 1 To n_len
-                For i = 1 To n_hidden
-                    h(i, k) = f_Activate(v(i, k) + xb(i), strType)
-                Next i
-            Next k
+
+            v = WorksheetFunction.MMult(xW, xin)
+            If n_hidden = 1 Then
+                For k = 1 To n_len
+                    h(1, k) = f_Activate(v(k) + xb(1), strType)
+                Next k
+            Else
+                For k = 1 To n_len
+                    For i = 1 To n_hidden
+                        h(i, k) = f_Activate(v(i, k) + xb(i), strType)
+                    Next i
+                Next k
+            End If
+            
+    '        ReDim h(1 To n_hidden, 1 To n_len)
+    '        For k = 1 To n_len
+    '            For i = 1 To pn_hidden
+    '                tmp_x = xb(i)
+    '                For j = 1 To n_input
+    '                    tmp_x = tmp_x + xW(i, j) * x(j, k)
+    '                Next j
+    '                h(i, k) = f_Activate(tmp_x, strType)
+    '            Next i
+    '        Next k
         End If
         
-'        ReDim h(1 To n_hidden, 1 To n_len)
-'        For k = 1 To n_len
-'            For i = 1 To pn_hidden
-'                tmp_x = xb(i)
-'                For j = 1 To n_input
-'                    tmp_x = tmp_x + xW(i, j) * x(j, k)
-'                Next j
-'                h(i, k) = f_Activate(tmp_x, strType)
-'            Next i
-'        Next k
-        
+        'store output for gradient calculation
         If storeOutput And n_hist_prv = 0 Then
             vh_out(iterate) = h
         ElseIf storeOutput And n_hist_prv > 0 Then
@@ -543,12 +646,7 @@ Dim n_hist_prv As Long
         End If
         
         'Assign output as input to next layer
-        ReDim xin(1 To n_hidden, 1 To n_len)
-        For k = 1 To n_len
-            For i = 1 To n_hidden
-                xin(i, k) = h(i, k)
-            Next i
-        Next k
+        xin = h
         n_input = n_hidden
 
     Next iterate
@@ -595,10 +693,11 @@ Dim iterate As Long
 Dim xW() As Double, xb() As Double, dW() As Double, dBias() As Double
 Dim y() As Double
 Dim h() As Double
-Dim v As Variant, x() As Double
+Dim v As Variant, x() As Double, z() As Double
 Dim strType As String
 Dim grad_curr As Variant, grad_nxt As Variant, grad_loc As Variant
-Dim n_hidden_nxt As Long
+Dim n_hidden_nxt As Long, layerType_nxt As String
+Dim tmp_x As Double, isDrop() As Boolean, drop_prob As Double
 
     n_len = UBound(y_out, 2)
     n_output = UBound(y_out, 1)
@@ -608,44 +707,27 @@ Dim n_hidden_nxt As Long
     End If
     
     'Placeholder to store changes in weights
+    Call InitWgtChg
     m = pn_hidden(pn_layer)
-    ReDim dWOut(1 To pn_output, 1 To m)
-    ReDim dbOut(1 To pn_output)
-    ReDim vdWgts(1 To pn_layer)
-    ReDim vdBias(1 To pn_layer)
     
+    ReDim grad_curr(1 To n_output, 1 To n_len)
     If isdEdx Then
         'dEdx is supplied instead of dEdy
-        ReDim grad_curr(1 To n_output, 1 To n_len)
         For k = 1 To n_len
             For i = 1 To n_output
                 grad_curr(i, k) = grad_out(i, k)
             Next i
         Next k
     Else
+        grad_loc = f_LocalGrad(y_out, pOutputType)
+        For k = 1 To n_len
+            For i = 1 To n_output
+                grad_curr(i, k) = grad_out(i, k) * grad_loc(i, k)
+            Next i
+        Next k
     
-        ReDim grad_curr(1 To n_output, 1 To n_len)
-        
-        If pOutputType = "SOFTMAX" Then
-        
-            'For softmax directly calculate grad_nxt * grad_loc
-            For k = 1 To n_len
-                For i = 1 To n_output
-                    grad_curr(i, k) = y_out(i, k) - y_tgt(i, k)
-                Next i
-            Next k
-            
-        Else
-    
-            grad_loc = f_LocalGrad(y_out, pOutputType)
-            For k = 1 To n_len
-                For i = 1 To n_output
-                    grad_curr(i, k) = grad_out(i, k) * grad_loc(i, k)
-                Next i
-            Next k
-    
-        End If
     End If
+    
     x = vh_out(pn_layer)
     For k = n_len To 1 Step -1
         For i = 1 To pn_output
@@ -655,73 +737,98 @@ Dim n_hidden_nxt As Long
             Next j
         Next i
     Next k
-
+    
+    layerType_nxt = ""
     grad_nxt = grad_curr
     n_hidden_nxt = pn_output
     For iterate = pn_layer To 1 Step -1
 
         n_hidden = pn_hidden(iterate)
         strType = pLayerType(iterate)
+        
+        If strType <> "DROPOUT" Then
 
-        'local gradient
-        grad_loc = f_LocalGrad(vh_out(iterate), strType)
- 
-        'Wgts connected to next layer
-        If iterate = pn_layer Then
-            xW = pWOut
-        Else
-            xW = vWgts(iterate + 1)
+            'local gradient
+            grad_loc = f_LocalGrad(vh_out(iterate), strType)
+     
+            'Wgts connected to next layer
+            drop_prob = 0
+            If layerType_nxt = "DROPOUT" Then
+                drop_prob = vBias(iterate + 1)(1)
+                If iterate = pn_layer - 1 Then
+                    xW = pWOut
+                Else
+                    xW = vWgts(iterate + 2)
+                End If
+            Else
+                If iterate = pn_layer Then
+                    xW = pWOut
+                Else
+                    xW = vWgts(iterate + 1)
+                End If
+            End If
+            
+            'Input to current layer
+            If iterate = 1 Then
+                n_input = pn_input
+                x = px_in
+            Else
+                n_input = pn_hidden(iterate - 1)
+                x = vh_out(iterate - 1)
+            End If
+            
+            dW = vdWgts(iterate)
+            dBias = vdBias(iterate)
+    
+            'Wgt sum of next layer's gradient
+            ReDim grad_curr(1 To n_hidden, 1 To n_len)
+            If layerType_nxt = "DROPOUT" And drop_prob > 0 Then
+                
+                isDrop = visDrop(iterate + 1)
+                tmp_x = 1 / (1 - drop_prob)
+                For k = n_len To 1 Step -1
+                    For i = 1 To n_hidden
+                        If Not isDrop(i, k) Then
+                            For j = 1 To n_hidden_nxt
+                                grad_curr(i, k) = grad_curr(i, k) + grad_nxt(j, k) * xW(j, i) * tmp_x * grad_loc(i, k)
+                            Next j
+                        End If
+                    Next i
+                Next k
+   
+            Else
+            
+                For k = n_len To 1 Step -1
+                    For i = 1 To n_hidden
+                        For j = 1 To n_hidden_nxt
+                            grad_curr(i, k) = grad_curr(i, k) + grad_nxt(j, k) * xW(j, i) * grad_loc(i, k)
+                        Next j
+                    Next i
+                Next k
+            
+            End If
+            
+            'Accumulate gradients
+            For k = n_len To 1 Step -1
+                For i = 1 To n_hidden
+                    dBias(i) = dBias(i) + grad_curr(i, k)
+                    For j = 1 To n_input
+                        dW(i, j) = dW(i, j) + grad_curr(i, k) * x(j, k)
+                    Next j
+                Next i
+            Next k
+    
+            vdWgts(iterate) = dW
+            vdBias(iterate) = dBias
+            
+            'pass gradient to previous layer
+            grad_nxt = grad_curr
+            n_hidden_nxt = n_hidden
+            
         End If
-
-        'Input to current layer
-        If iterate = 1 Then
-            n_input = pn_input
-            x = px_in
-        Else
-            n_input = pn_hidden(iterate - 1)
-            x = vh_out(iterate - 1)
-        End If
-
-        ReDim dW(1 To n_hidden, 1 To n_input)
-        ReDim dBias(1 To n_hidden)
-
-        'Wgt sum of next layer's gradient
-        ReDim grad_curr(1 To n_hidden, 1 To n_len)
         
-'        v = Application.WorksheetFunction.MMult(Application.WorksheetFunction.Transpose(xW), grad_nxt)
-'        For k = n_len To 1 Step -1
-'            For i = 1 To n_hidden
-'                tmp_x = v(i, k) * grad_loc(i, k)
-'                grad_curr(i, k) = tmp_x
-'                dBias(i) = dBias(i) + tmp_x
-'                For j = 1 To n_input
-'                    dW(i, j) = dW(i, j) + tmp_x * x(j, k)
-'                Next j
-'            Next i
-'        Next k
+        layerType_nxt = strType
         
-        For k = n_len To 1 Step -1
-            For i = 1 To n_hidden
-                For j = 1 To n_hidden_nxt
-                    grad_curr(i, k) = grad_curr(i, k) + grad_nxt(j, k) * xW(j, i) * grad_loc(i, k)
-                Next j
-            Next i
-        Next k
-        
-        For k = n_len To 1 Step -1
-            For i = 1 To n_hidden
-                dBias(i) = dBias(i) + grad_curr(i, k)
-                For j = 1 To n_input
-                    dW(i, j) = dW(i, j) + grad_curr(i, k) * x(j, k)
-                Next j
-            Next i
-        Next k
-
-        vdWgts(iterate) = dW
-        vdBias(iterate) = dBias
-        
-        grad_nxt = grad_curr
-        n_hidden_nxt = n_hidden
     Next iterate
     
 End Sub
@@ -754,29 +861,33 @@ Dim adam_discount1 As Double, adam_discount2 As Double
         Next j
 
         For iterate = 1 To pn_layer
-    
-            xW = vWgts(iterate)
-            xb = vBias(iterate)
-            dW = vdWgts(iterate)
-            db = vdBias(iterate)
-            dW2 = vdW2(iterate)
-            db2 = vdB2(iterate)
             
-            n = UBound(xW, 1)
-            m = UBound(xW, 2)
-            For i = 1 To n
-                xb(i) = xb(i) - learn_rate * db(i) / (Sqr(db2(i)) + 0.00000001)
-            Next i
-
-            For j = 1 To m
+            If pLayerType(iterate) <> "DROPOUT" Then
+            
+                xW = vWgts(iterate)
+                xb = vBias(iterate)
+                dW = vdWgts(iterate)
+                db = vdBias(iterate)
+                dW2 = vdW2(iterate)
+                db2 = vdB2(iterate)
+                
+                n = UBound(xW, 1)
+                m = UBound(xW, 2)
                 For i = 1 To n
-                    xW(i, j) = xW(i, j) - learn_rate * dW(i, j) / (Sqr(dW2(i, j)) + 0.00000001)
+                    xb(i) = xb(i) - learn_rate * db(i) / (Sqr(db2(i)) + 0.00000001)
                 Next i
-            Next j
-
-            vWgts(iterate) = xW
-            vBias(iterate) = xb
-
+    
+                For j = 1 To m
+                    For i = 1 To n
+                        xW(i, j) = xW(i, j) - learn_rate * dW(i, j) / (Sqr(dW2(i, j)) + 0.00000001)
+                    Next i
+                Next j
+    
+                vWgts(iterate) = xW
+                vBias(iterate) = xb
+            
+            End If
+            
         Next iterate
         
     ElseIf UCase(useSpeedUp) = "ADAM" Then
@@ -797,30 +908,32 @@ Dim adam_discount1 As Double, adam_discount2 As Double
         Next j
         
         For iterate = 1 To pn_layer
-    
-            xW = vWgts(iterate)
-            xb = vBias(iterate)
-'            dW = vdWgts(iterate)
-'            db = vdBias(iterate)
-            dW1 = vdW1(iterate)
-            db1 = vdB1(iterate)
-            dW2 = vdW2(iterate)
-            db2 = vdB2(iterate)
+        
+            If pLayerType(iterate) <> "DROPOUT" Then
             
-            n = UBound(xW, 1)
-            m = UBound(xW, 2)
-            
-            For i = 1 To n
-                xb(i) = xb(i) - learn_rate * db1(i) * adam_discount1 / (Sqr(db2(i) * adam_discount2) + 0.00000001)
-            Next i
-            For j = 1 To m
+                xW = vWgts(iterate)
+                xb = vBias(iterate)
+                dW1 = vdW1(iterate)
+                db1 = vdB1(iterate)
+                dW2 = vdW2(iterate)
+                db2 = vdB2(iterate)
+                
+                n = UBound(xW, 1)
+                m = UBound(xW, 2)
+                
                 For i = 1 To n
-                    xW(i, j) = xW(i, j) - learn_rate * dW1(i, j) * adam_discount1 / (Sqr(dW2(i, j) * adam_discount2) + 0.00000001)
+                    xb(i) = xb(i) - learn_rate * db1(i) * adam_discount1 / (Sqr(db2(i) * adam_discount2) + 0.00000001)
                 Next i
-            Next j
+                For j = 1 To m
+                    For i = 1 To n
+                        xW(i, j) = xW(i, j) - learn_rate * dW1(i, j) * adam_discount1 / (Sqr(dW2(i, j) * adam_discount2) + 0.00000001)
+                    Next i
+                Next j
+                
+                vWgts(iterate) = xW
+                vBias(iterate) = xb
             
-            vWgts(iterate) = xW
-            vBias(iterate) = xb
+            End If
             
         Next iterate
     
@@ -838,25 +951,29 @@ Dim adam_discount1 As Double, adam_discount2 As Double
         Next j
         
         For iterate = 1 To pn_layer
-    
-            xW = vWgts(iterate)
-            xb = vBias(iterate)
-            dW = vdWgts(iterate)
-            db = vdBias(iterate)
-     
-            n = UBound(xW, 1)
-            m = UBound(xW, 2)
             
-            For i = 1 To n
-                xb(i) = xb(i) - learn_rate * db(i)
-            Next i
-            For j = 1 To m
-                For i = 1 To n
-                    xW(i, j) = xW(i, j) - learn_rate * dW(i, j)
-                Next i
-            Next j
-            vWgts(iterate) = xW
-            vBias(iterate) = xb
+            If pLayerType(iterate) <> "DROPOUT" Then
+            
+               xW = vWgts(iterate)
+               xb = vBias(iterate)
+               dW = vdWgts(iterate)
+               db = vdBias(iterate)
+        
+               n = UBound(xW, 1)
+               m = UBound(xW, 2)
+               
+               For i = 1 To n
+                   xb(i) = xb(i) - learn_rate * db(i)
+               Next i
+               For j = 1 To m
+                   For i = 1 To n
+                       xW(i, j) = xW(i, j) - learn_rate * dW(i, j)
+                   Next i
+               Next j
+               vWgts(iterate) = xW
+               vBias(iterate) = xb
+            
+            End If
             
         Next iterate
     
@@ -866,7 +983,7 @@ Dim adam_discount1 As Double, adam_discount2 As Double
 End Sub
 
 
-'Fit with cross validation, arguments are similar to Fit, additional arguments include
+'Fit with cross validation, arguments are similar to Fit, additional arguments include:
 'outputs a scalar which is the average k-fold validation error
 'n_fold     number of validation sets
 'strLossCV  loss function used in measuring cross-validation performance. Default is the same as strLossType
@@ -876,7 +993,8 @@ Function FitCV(x, y_tgt, Optional n_fold As Long = 10, Optional n_epoch As Long 
             Optional err_tol As Double = 0.000000001, _
             Optional err_tol_rel As Double = 0.0001, _
             Optional useSpeedUp As String = "", _
-            Optional learnSchedule As String = "", _
+            Optional learnSchedule As String = "", Optional warm_steps As Long = 10, _
+            Optional isShuffle As Boolean = True, _
             Optional statusShown As Long = 10)
 Dim i As Long, j As Long, k As Long, m As Long, n As Long, ii As Long, jj As Long
 Dim n_len As Long, n_input As Long, n_output As Long, batch_size As Long
@@ -905,7 +1023,7 @@ Dim strLossCV2 As String
     For i = 1 To n_len
         x_idx(i) = i
     Next i
-    Call Shuffle(x_idx)
+    If isShuffle Then Call Shuffle(x_idx)
     
     x_err_kfold = 0
     x_err_min = Exp(70)
@@ -939,8 +1057,9 @@ Dim strLossCV2 As String
         Call cNNtest.Fit(x_sub, y_tgt_sub, n_epoch:=n_epoch, n_batch:=n_batch, _
                         learn_rate:=learn_rate, strLossType:=strLossType, _
                         err_tol:=err_tol, err_tol_rel:=err_tol_rel, _
-                        learnSchedule:=learnSchedule, _
                         useSpeedUp:=useSpeedUp, _
+                        learnSchedule:=learnSchedule, warm_steps:=warm_steps, _
+                        isShuffle:=isShuffle, _
                         statusShown:=statusShown)
                         
         'evaluate performance on testing set
@@ -979,15 +1098,18 @@ End Function
 'err_tol        criteria for convergence if loss is less than err_tol
 'err_tol_rel    criteria for convergence if change in loss function is less than err_rol_rel * loss from previous epoch
 'useSpeedUp     can be either "", "RMS" or "ADAM"
-'learnSchedule  can be "", "DECAY", or "AGGRESSIVE"
+'learnSchedule  can be "", "DECAY", "AGGRESSIVE", or "WARM"
+'warm_steps     number of epochs used for warm start
+'isShuffle      whether to shuffle samples during mini-batch constructions
 'statusShown    show progress in status bar every n epochs
 Sub Fit(x, y_tgt, Optional n_epoch As Long = 5, Optional n_batch As Long = 1, _
-            Optional learn_rate As Double = 0.0001, _
+            Optional learn_rate As Double = 0.001, _
             Optional strLossType As String = "SSE", _
             Optional err_tol As Double = 0.000000001, _
             Optional err_tol_rel As Double = 0.0001, _
             Optional useSpeedUp As String = "", _
-            Optional learnSchedule As String = "AGGRESSIVE", _
+            Optional learnSchedule As String = "AGGRESSIVE", Optional warm_steps As Long = 10, _
+            Optional isShuffle As Boolean = True, _
             Optional statusShown As Long = 10)
 Dim i As Long, j As Long, k As Long, m As Long, n As Long, n_len As Long
 Dim ii As Long, jj As Long
@@ -996,9 +1118,11 @@ Dim y() As Double
 Dim grad_out() As Double
 Dim x_err As Double, x_err_prv As Double
 Dim step_size As Double
-Dim batch_count As Long, converge_count As Long, batchIdx() As Long
+Dim converge_count As Long, batchIdx() As Long
 Dim batch_size As Long
-
+    
+    converge_count = 0
+    n_len = UBound(x, 2)
     step_size = learn_rate
     strLossType = UCase(Trim(strLossType))
     If pn_output = 1 And strLossType = "CROSSENTROPY" And pOutputType <> "SIGMOID" Then
@@ -1006,44 +1130,49 @@ Dim batch_size As Long
         End
     End If
     
-    batch_count = 0
-    converge_count = 0
-    n_len = UBound(x, 2)
-    x_err_prv = Exp(70)
-    ReDim pTrainProgress(1 To 3, 1 To 1)
-
+    'evaluate performance before training
+    y = FwdPass(x, storeOutput:=False)
+    x_err_prv = f_calcLoss(y, y_tgt, strLossType)
+    
     ReDim batchIdx(1 To n_len)
     For i = 1 To n_len
         batchIdx(i) = i
     Next i
     batch_size = Int(n_len / n_batch)
+    ReDim pTrainProgress(1 To 3, 1 To 1)
     
     For i_epoch = 1 To n_epoch
         
         DoEvents
         If (i_epoch - 1) Mod statusShown = 0 Then
-            Application.StatusBar = "cNeuralNet: Train: Epoch " & i_epoch & "/" & n_epoch & "..."
+            Application.StatusBar = "cNeuralNet: Fit: Epoch " & i_epoch & "/" & n_epoch & "..."
         End If
         
         Call CacheCurrentWgt
         
         If n_batch <= 1 Then
+        
             y = FwdPass(x, storeOutput:=True)
             If pOutputType = "SOFTMAX" Then
-                Call Backward(y, , y_tgt)
+                ReDim grad_out(1 To n_output, 1 To n_len)
+                For k = 1 To n_len
+                    For i = 1 To n_output
+                        grad_out(i, k) = y(i, k) - y_tgt(i, k)
+                    Next i
+                Next k
+                Call Backward(y, grad_out, , isdEdx:=True)
             Else
                 grad_out = f_calcdEdy(y, y_tgt, strLossType)
                 Call Backward(y, grad_out)
             End If
-            
-            batch_count = batch_count + 1
 
             Call UpdateWgt(step_size, UCase(useSpeedUp))
+            Call ResetWgtChg
             Call ClearHist
             
         Else
             
-            Call Shuffle(batchIdx)
+            If isShuffle Then Call Shuffle(batchIdx)
         
             ii = 0
             jj = 0
@@ -1065,26 +1194,32 @@ Dim batch_size As Long
                         yy(i, k) = y_tgt(i, j)
                     Next i
                 Next m
-                batch_count = batch_count + 1
 
                 y = FwdPass(xx, storeOutput:=True)
-
                 If pOutputType = "SOFTMAX" Then
-                    Call Backward(y, , yy)
+                    ReDim grad_out(1 To n_output, 1 To UBound(y, 2))
+                    For k = 1 To UBound(y, 2)
+                        For i = 1 To n_output
+                            grad_out(i, k) = y(i, k) - yy(i, k)
+                        Next i
+                    Next k
+                    Call Backward(y, grad_out, , isdEdx:=True)
                 Else
                     grad_out = f_calcdEdy(y, yy, strLossType)
                     Call Backward(y, grad_out)
                 End If
 
                 Call UpdateWgt(step_size, UCase(useSpeedUp))
+                Call ResetWgtChg
                 Call ClearHist
+                
             Loop
         End If
         
         'Evalulate this update
         y = FwdPass(x, storeOutput:=False)
         x_err = f_calcLoss(y, y_tgt, strLossType)
-        
+
         ReDim Preserve pTrainProgress(1 To 3, 1 To i_epoch)
         pTrainProgress(1, i_epoch) = i_epoch
         pTrainProgress(2, i_epoch) = x_err
@@ -1092,11 +1227,11 @@ Dim batch_size As Long
         
         DoEvents
         If (i_epoch - 1) Mod statusShown = 0 Then
-            Debug.Print "cNeuralNet: Train: Epoch " & i_epoch & "/" & n_epoch & ", cost = " & Format(x_err, "0.0000E+00") & ", step size=" & Format(step_size, "0.0000E+00")
+            Debug.Print "cNeuralNet: Fit: Epoch " & i_epoch & "/" & n_epoch & ", cost = " & Format(x_err, "0.0000E+00") & ", step size=" & Format(step_size, "0.0000E+00")
         End If
         
         'Check for convergence
-        If (x_err <= x_err_prv) And ((x_err_prv - x_err) <= (err_tol_rel * Abs(x_err_prv)) Or x_err <= err_tol) Then
+        If (x_err <= x_err_prv) And (Abs(x_err_prv - x_err) <= Abs(err_tol_rel * x_err_prv) Or x_err <= err_tol) Then
             converge_count = converge_count + 1
         Else
             converge_count = 0
@@ -1113,17 +1248,25 @@ Dim batch_size As Long
                 Call RestoreWgt
                 If UCase(useSpeedUp) = "ADAM" Then Call ADAM_Init
                 DoEvents
-                Debug.Print "cost increases, discard current epoch and decrease learning rate."
+                Debug.Print "cNeuralNet: Fit: cost increases, discard current epoch and decrease learning rate."
                 If step_size < 0.00000000001 Then Exit For
             End If
+        ElseIf UCase(learnSchedule) = "WARM" Then
+            If x_err <= x_err_prv And i_epoch <= warm_steps Then
+                step_size = step_size * 1.02
+            Else
+                step_size = step_size * (1 - 1 / n_epoch)
+            End If
+            x_err_prv = x_err
         ElseIf UCase(learnSchedule) = "DECAY" Then
-            step_size = step_size * (1 - (i_epoch - 1) * 1# / (n_epoch - 1))
+            step_size = step_size * (1 - 1 / n_epoch)
             x_err_prv = x_err
         ElseIf UCase(learnSchedule) = "" Then
             x_err_prv = x_err
         Else
             Debug.Print "cNeuralNet: Fit: learnSchedule must be """", ""DECAY"" or ""AGGRESSIVE"""
         End If
+        
         Call ClearCacheWgt
         Call ResetWgtChg
 
@@ -1196,7 +1339,7 @@ Dim x_class() As Long
             
             x_error = 0
             For m = 1 To n_len
-                x_error = x_error - y_tgt(i, m) * Log(y(i, m)) - (1 - y_tgt(i, m)) * Log(1 - y(i, m))
+                x_error = x_error - y_tgt(1, m) * Log(y(1, m)) - (1 - y_tgt(1, m)) * Log(1 - y(1, m))
             Next m
             x_error = x_error / n_len
 
@@ -1204,7 +1347,13 @@ Dim x_class() As Long
             x_error = 0
             For m = 1 To n_len
                 For i = 1 To pn_output
-                    x_error = x_error - y_tgt(i, m) * Log(y(i, m))
+                    If y_tgt(i, m) = 1 Then
+                        If y(i, m) = 0 Then
+                            x_error = x_error - y_tgt(i, m) * Log(0.00001)
+                        Else
+                            x_error = x_error - y_tgt(i, m) * Log(y(i, m))
+                        End If
+                    End If
                 Next i
             Next m
             x_error = x_error / n_len
@@ -1232,7 +1381,7 @@ End Function
 Private Function f_Activate(x As Variant, strType As String)
 Dim i As Long, n As Long
 Dim y() As Double
-Dim tmp_x As Double
+Dim tmp_x As Double, tmp_max As Double
     Select Case strType
     Case "RELU"
         If x <= 0 Then
@@ -1274,9 +1423,15 @@ Dim tmp_x As Double
     
         tmp_x = 0
         n = UBound(x, 1)
+        
+        tmp_max = x(1)
+        For i = 2 To n
+            If x(i) > tmp_max Then tmp_max = x(i)
+        Next i
+        
         ReDim y(1 To n)
         For i = 1 To n
-            y(i) = Exp(x(i))
+            y(i) = Exp(x(i) - tmp_max)
             tmp_x = tmp_x + y(i)
         Next i
         For i = 1 To n
@@ -1654,6 +1809,23 @@ Dim vtmp As Variant
         x(i) = vtmp
     Next i
 End Sub
+
+
+Private Function ArrayIsEmpty(x) As Boolean
+Dim i As Long
+    If Not IsArray(x) Then
+        ArrayIsEmpty = True
+    Else
+        ArrayIsEmpty = False
+        On Error Resume Next
+        i = UBound(x, 1)
+        If Err.Number <> 0 Then
+            Err.Clear
+            ArrayIsEmpty = True
+        End If
+    End If
+End Function
+
 
 
 
@@ -2204,3 +2376,5 @@ Dim tmp_x As Double, x_curve As Double
     Call ClearHist
     
 End Sub
+
+
