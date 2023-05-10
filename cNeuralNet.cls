@@ -38,7 +38,7 @@ Private dWOut2() As Double, dbOut2() As Double
 Private vdW1() As Variant, vdB1() As Variant
 Private dWOut1() As Double, dbOut1() As Double
 
-Private vh_out() As Variant, px_in() As Double
+Private vh_out() As Variant, px_in() As Double, py_out() As Double
 
 Private pn_row As Long, pn_hist As Long
 Private pTrainProgress() As Double
@@ -680,13 +680,25 @@ Dim boolean_tmp() As Boolean
     End If
     
     FwdPass = y
-    
+
+    If storeOutput And n_hist_prv = 0 Then
+        py_out = y
+    ElseIf storeOutput And n_hist_prv > 0 Then
+        ReDim Preserve py_out(1 To pn_output, 1 To n_hist_prv + n_len)
+        For k = 1 To n_len
+            For i = 1 To pn_output
+                py_out(i, n_hist_prv + k) = y(i, k)
+            Next i
+        Next k
+    End If
+
 End Function
 
 
 'Calculate and accumulate gradients with respect to all weights
 'gradients are stored in memory
-Sub Backward(y_out, Optional grad_out, Optional y_tgt As Variant, Optional isdEdx As Boolean = False)
+'returns dE/dx which can be passed to classes that fed inputs to it
+Function Backward(grad_out, Optional isdEdx As Boolean = False, Optional y_out, Optional y_tgt As Variant)
 Dim i As Long, j As Long, k As Long, m As Long, n As Long
 Dim n_output As Long, n_hidden As Long, n_len As Long, n_input As Long
 Dim iterate As Long
@@ -699,8 +711,8 @@ Dim grad_curr As Variant, grad_nxt As Variant, grad_loc As Variant
 Dim n_hidden_nxt As Long, layerType_nxt As String
 Dim tmp_x As Double, isDrop() As Boolean, drop_prob As Double
 
-    n_len = UBound(y_out, 2)
-    n_output = UBound(y_out, 1)
+    n_len = UBound(grad_out, 2)
+    n_output = UBound(grad_out, 1)
     If n_output <> pn_output Then
         Debug.Print "cNeuralNet: Backward: output size incorrect."
         End
@@ -719,7 +731,7 @@ Dim tmp_x As Double, isDrop() As Boolean, drop_prob As Double
             Next i
         Next k
     Else
-        grad_loc = f_LocalGrad(y_out, pOutputType)
+        grad_loc = f_LocalGrad(py_out, pOutputType)
         For k = 1 To n_len
             For i = 1 To n_output
                 grad_curr(i, k) = grad_out(i, k) * grad_loc(i, k)
@@ -830,8 +842,21 @@ Dim tmp_x As Double, isDrop() As Boolean, drop_prob As Double
         layerType_nxt = strType
         
     Next iterate
+
+    'On exit, calculate dL/dx to pass to previous networks
+    xW = vWgts(1)
+    ReDim grad_curr(1 To pn_input, 1 To n_len)
+    For k = 1 To n_len
+        For i = 1 To n_input
+            For j = 1 To n_hidden
+                grad_curr(i, k) = grad_curr(i, k) + grad_nxt(j, k) * xW(j, i)
+            Next j
+        Next i
+    Next k
     
-End Sub
+    Backward = grad_curr
+
+End Function
 
 
 'Applied stored gradients to update weights
@@ -1154,16 +1179,11 @@ Dim batch_size As Long
         
             y = FwdPass(x, storeOutput:=True)
             If pOutputType = "SOFTMAX" Then
-                ReDim grad_out(1 To n_output, 1 To n_len)
-                For k = 1 To n_len
-                    For i = 1 To n_output
-                        grad_out(i, k) = y(i, k) - y_tgt(i, k)
-                    Next i
-                Next k
-                Call Backward(y, grad_out, , isdEdx:=True)
+                grad_out = f_calcdEdy(y, y_tgt, strLossType, isdEdx:=True)
+                Call Backward(grad_out, isdEdx:=True)
             Else
                 grad_out = f_calcdEdy(y, y_tgt, strLossType)
-                Call Backward(y, grad_out)
+                Call Backward(grad_out)
             End If
 
             Call UpdateWgt(step_size, UCase(useSpeedUp))
@@ -1197,16 +1217,11 @@ Dim batch_size As Long
 
                 y = FwdPass(xx, storeOutput:=True)
                 If pOutputType = "SOFTMAX" Then
-                    ReDim grad_out(1 To n_output, 1 To UBound(y, 2))
-                    For k = 1 To UBound(y, 2)
-                        For i = 1 To n_output
-                            grad_out(i, k) = y(i, k) - yy(i, k)
-                        Next i
-                    Next k
-                    Call Backward(y, grad_out, , isdEdx:=True)
+                    grad_out = f_calcdEdy(y, yy, strLossType, isdEdx:=True)
+                    Call Backward(grad_out, isdEdx:=True)
                 Else
                     grad_out = f_calcdEdy(y, yy, strLossType)
-                    Call Backward(y, grad_out)
+                    Call Backward(grad_out)
                 End If
 
                 Call UpdateWgt(step_size, UCase(useSpeedUp))
@@ -1281,7 +1296,7 @@ End Sub
 
 'Derivative of loss function w.r.t. output
 'output is a double array of dimension (1:pn_output, 1:n)
-Function f_calcdEdy(y, y_tgt, strLossType)
+Function f_calcdEdy(y, y_tgt, strLossType, Optional isdEdx As Boolean = False)
 Dim i As Long, j As Long, k As Long, m As Long, n As Long, n_len As Long
 Dim dEdy() As Double
     
@@ -1297,11 +1312,19 @@ Dim dEdy() As Double
         Next m
     
     Case "CROSSENTROPY"
-    
-        If pn_output = 1 Then
+        
+        If isdEdx And pOutputType = "SOFTMAX" Then
             For m = 1 To n_len
-                dEdy(1, m) = (y(1, m) - y_tgt(1, m)) / (y(1, m) * (1 - y(1, m)))
+                For i = 1 To pn_output
+                    dEdy(i, m) = y(i, m) - y_tgt(i, m)
+                Next i
             Next m
+        Else
+            If pn_output = 1 Then
+                For m = 1 To n_len
+                    dEdy(1, m) = (y(1, m) - y_tgt(1, m)) / (y(1, m) * (1 - y(1, m)))
+                Next m
+            End If
         End If
         
     End Select
@@ -1971,10 +1994,11 @@ Dim v As Variant
     'Evalulate current gradients
     y = FwdPass(x, storeOutput:=True)
     If pOutputType = "SOFTMAX" Then
-        Call Backward(y, , y_tgt)
+        grad_out = f_calcdEdy(y, y_tgt, strLossType, isdEdx:=True)
+        Call Backward(grad_out, isdEdx:=True)
     Else
         grad_out = f_calcdEdy(y, y_tgt, strLossType)
-        Call Backward(y, grad_out)
+        Call Backward(grad_out)
     End If
     
     'Save current wgts and gradients as vectors
@@ -1993,10 +2017,11 @@ Dim v As Variant
         'find new gradient after wgt change
         y = FwdPass(x, storeOutput:=True)
         If pOutputType = "SOFTMAX" Then
-            Call Backward(y, , y_tgt)
+            grad_out = f_calcdEdy(y, y_tgt, strLossType, isdEdx:=True)
+            Call Backward(grad_out, isdEdx:=True)
         Else
             grad_out = f_calcdEdy(y, y_tgt, strLossType)
-            Call Backward(y, grad_out)
+            Call Backward(grad_out)
         End If
         Call flatten_wgts(grad_vec_new, True, False)
         Call ResetWgtChg
@@ -2031,10 +2056,11 @@ Dim s_vec() As Double, y_vec() As Double
     'Evalulate current gradients
     y = FwdPass(x, storeOutput:=True)
     If pOutputType = "SOFTMAX" Then
-        Call Backward(y, , y_tgt)
+        grad_out = f_calcdEdy(y, y_tgt, strLossType, isdEdx:=True)
+        Call Backward(grad_out, isdEdx:=True)
     Else
         grad_out = f_calcdEdy(y, y_tgt, strLossType)
-        Call Backward(y, grad_out)
+        Call Backward(grad_out)
     End If
     
     'Save current wgts and gradients as vectors
@@ -2055,10 +2081,11 @@ Dim s_vec() As Double, y_vec() As Double
     Call flatten_wgts(wgt_vec_new, False, True)
     y = FwdPass(x, storeOutput:=True)
     If pOutputType = "SOFTMAX" Then
-        Call Backward(y, , y_tgt)
+        grad_out = f_calcdEdy(y, y_tgt, strLossType, isdEdx:=True)
+        Call Backward(grad_out, isdEdx:=True)
     Else
         grad_out = f_calcdEdy(y, y_tgt, strLossType)
-        Call Backward(y, grad_out)
+        Call Backward(grad_out)
     End If
     Call flatten_wgts(grad_vec_new, True, False)
     Call ResetWgtChg
@@ -2130,10 +2157,11 @@ Dim y_vec() As Double, s_vec() As Double, Hy_vec() As Double, sy As Double
     y = FwdPass(x, storeOutput:=True)
     x_err_prv = f_calcLoss(y, y_tgt, strLossType)
     If pOutputType = "SOFTMAX" Then
-        Call Backward(y, , y_tgt)
+        grad_out = f_calcdEdy(y, y_tgt, strLossType, isdEdx:=True)
+        Call Backward(grad_out, isdEdx:=True)
     Else
         grad_out = f_calcdEdy(y, y_tgt, strLossType)
-        Call Backward(y, grad_out)
+        Call Backward(grad_out)
     End If
     
     'Save current wgts and gradients as vectors
@@ -2366,10 +2394,11 @@ Dim tmp_x As Double, x_curve As Double
     y = FwdPass(x, storeOutput:=True)
     x_err = f_calcLoss(y, y_tgt, strLossType)
     If pOutputType = "SOFTMAX" Then
-        Call Backward(y, , y_tgt)
+        grad_out = f_calcdEdy(y, y_tgt, strLossType, isdEdx:=True)
+        Call Backward(grad_out, isdEdx:=True)
     Else
         grad_out = f_calcdEdy(y, y_tgt, strLossType)
-        Call Backward(y, grad_out)
+        Call Backward(grad_out)
     End If
     Call flatten_wgts(grad_vec_new, True, isReverse:=False)
     Call ResetWgtChg
