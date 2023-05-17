@@ -18,6 +18,7 @@ Option Explicit
 'networks can be printed to a worksheet using PrintNetwork(), and read by ReadNetwork()
 'A few frequently used functions like Label2Dummy(), Dummy2Label() and SampleSoftmax()
 'are also included
+'2023-05-14 Add support for allowing no hidden layer
 '======================================================================================
 
 Private pOutputType As String
@@ -114,17 +115,22 @@ Sub Clone(cNN As cNeuralNet)
     pn_output = cNN.n_output
     pn_unit = cNN.n_unit
     pn_layer = cNN.n_layer
-    pn_hidden = cNN.n_hidden
-    pLayerType = cNN.LayerType
+    If pn_layer > 0 Then
+        pn_hidden = cNN.n_hidden
+        pLayerType = cNN.LayerType
+        vWgts = cNN.WgtHidden
+        vBias = cNN.BiasHidden
+    End If
     pWOut = cNN.WOut
     pbOut = cNN.bOut
-    vWgts = cNN.WgtHidden
-    vBias = cNN.BiasHidden
 End Sub
 
 Sub RMSProp_Clear()
     pRMS_count = 0
-    Erase vdW2, vdB2, dWOut2, dbOut2
+    Erase dWOut2, dbOut2
+    If pn_layer > 0 Then
+        Erase vdW2, vdB2
+    End If
 End Sub
 
 Private Sub RMSProp_CalcRMS()
@@ -135,22 +141,24 @@ Dim dW2() As Double, db2() As Double
 Dim tmp_x As Double
     
     If pRMS_count = 0 Then
-        ReDim vdW2(1 To pn_layer)
-        ReDim vdB2(1 To pn_layer)
-        ReDim dWOut2(1 To pn_output, 1 To pn_hidden(pn_layer))
+        ReDim dWOut2(1 To pn_output, 1 To UBound(pWOut, 2))
         ReDim dbOut2(1 To pn_output)
-        For iterate = 1 To pn_layer
-            If iterate = 1 Then
-                n_input = pn_input
-            Else
-                n_input = pn_hidden(iterate - 1)
-            End If
-            n_output = pn_hidden(iterate)
-            ReDim dW2(1 To n_output, 1 To n_input)
-            ReDim db2(1 To n_output)
-            vdW2(iterate) = dW2
-            vdB2(iterate) = db2
-        Next iterate
+        If pn_layer > 0 Then
+            ReDim vdW2(1 To pn_layer)
+            ReDim vdB2(1 To pn_layer)
+            For iterate = 1 To pn_layer
+                If iterate = 1 Then
+                    n_input = pn_input
+                Else
+                    n_input = pn_hidden(iterate - 1)
+                End If
+                n_output = pn_hidden(iterate)
+                ReDim dW2(1 To n_output, 1 To n_input)
+                ReDim db2(1 To n_output)
+                vdW2(iterate) = dW2
+                vdB2(iterate) = db2
+            Next iterate
+        End If
     End If
     
     For iterate = 1 To pn_layer
@@ -196,7 +204,7 @@ Dim tmp_x As Double
     Next iterate
 
     If pRMS_count = 0 Then
-        For j = 1 To pn_hidden(pn_layer)
+        For j = 1 To UBound(dWOut, 2)
             For i = 1 To pn_output
                 dWOut2(i, j) = dWOut(i, j) ^ 2
             Next i
@@ -206,7 +214,7 @@ Dim tmp_x As Double
             dbOut2(i) = dbOut(i) ^ 2
         Next i
     Else
-        For j = 1 To pn_input
+        For j = 1 To UBound(dWOut, 2)
             For i = 1 To pn_output
                 dWOut2(i, j) = 0.9 * dWOut2(i, j) + 0.1 * dWOut(i, j) ^ 2
             Next i
@@ -224,8 +232,10 @@ End Sub
 'Clear and reset memories used in ADAM
 Sub ADAM_Clear()
     pADAM_count = 0
-    Erase vdW1, vdB1
-    Erase vdW2, vdB2
+    If pn_layer > 0 Then
+        Erase vdW1, vdB1
+        Erase vdW2, vdB2
+    End If
     Erase dWOut1, dbOut1
     Erase dWOut2, dbOut2
 End Sub
@@ -238,33 +248,35 @@ Dim dW2() As Double, db2() As Double
 Dim dW1() As Double, db1() As Double
     
     pADAM_count = 0
-    
-    ReDim vdW1(1 To pn_layer)
-    ReDim vdB1(1 To pn_layer)
-    ReDim dWOut1(1 To pn_output, 1 To pn_hidden(pn_layer))
+    ReDim dWOut1(1 To pn_output, 1 To UBound(pWOut, 2))
     ReDim dbOut1(1 To pn_output)
-    
-    ReDim vdW2(1 To pn_layer)
-    ReDim vdB2(1 To pn_layer)
-    ReDim dWOut2(1 To pn_output, 1 To pn_hidden(pn_layer))
+    ReDim dWOut2(1 To pn_output, 1 To UBound(pWOut, 2))
     ReDim dbOut2(1 To pn_output)
     
-    For iterate = 1 To pn_layer
-        dW1 = vWgts(iterate)
-        n_output = UBound(dW1, 1)
-        n_input = UBound(dW1, 2)
-        
-        ReDim dW1(1 To n_output, 1 To n_input)
-        ReDim db1(1 To n_output)
-        ReDim dW2(1 To n_output, 1 To n_input)
-        ReDim db2(1 To n_output)
-            
-        vdW1(iterate) = dW1
-        vdB1(iterate) = db1
-        vdW2(iterate) = dW2
-        vdB2(iterate) = db2
-    Next iterate
+    If pn_layer > 0 Then
     
+        ReDim vdW1(1 To pn_layer)
+        ReDim vdB1(1 To pn_layer)
+        ReDim vdW2(1 To pn_layer)
+        ReDim vdB2(1 To pn_layer)
+
+        For iterate = 1 To pn_layer
+            dW1 = vWgts(iterate)
+            n_output = UBound(dW1, 1)
+            n_input = UBound(dW1, 2)
+            
+            ReDim dW1(1 To n_output, 1 To n_input)
+            ReDim db1(1 To n_output)
+            ReDim dW2(1 To n_output, 1 To n_input)
+            ReDim db2(1 To n_output)
+                
+            vdW1(iterate) = dW1
+            vdB1(iterate) = db1
+            vdW2(iterate) = dW2
+            vdB2(iterate) = db2
+        Next iterate
+        
+    End If
 End Sub
 
 Private Sub ADAM_CalcMoment(Optional isFirst As Boolean = False)
@@ -331,21 +343,28 @@ End Sub
 
 'Cache current weights
 Sub CacheCurrentWgt()
-    vWgts_tmp = vWgts
-    vBias_tmp = vBias
+    If pn_layer > 0 Then
+        vWgts_tmp = vWgts
+        vBias_tmp = vBias
+    End If
     pWOut_tmp = pWOut
     pbOut_tmp = pbOut
 End Sub
 
 'Clear cache weights
 Sub ClearCacheWgt()
-    Erase vWgts_tmp, vBias_tmp, pWOut_tmp, pbOut_tmp
+    If pn_layer > 0 Then
+        Erase vWgts_tmp, vBias_tmp
+    End If
+    Erase pWOut_tmp, pbOut_tmp
 End Sub
 
 'Restore weights to cached values
 Sub RestoreWgt()
-    vWgts = vWgts_tmp
-    vBias = vBias_tmp
+    If pn_layer > 0 Then
+        vWgts = vWgts_tmp
+        vBias = vBias_tmp
+    End If
     pWOut = pWOut_tmp
     pbOut = pbOut_tmp
 End Sub
@@ -353,12 +372,18 @@ End Sub
 'clear intermediate outputs from memory
 Sub ClearHist()
     pn_hist = 0
-    Erase vh_out, px_in, visDrop
+    If pn_layer > 0 Then
+        Erase vh_out, visDrop
+    End If
+    Erase px_in
 End Sub
 
 'Reset gradients
 Sub ResetWgtChg()
-    Erase dWOut, dbOut, vdWgts, vdBias
+    If pn_layer > 0 Then
+        Erase vdWgts, vdBias
+    End If
+    Erase dWOut, dbOut
 End Sub
 
 
@@ -367,25 +392,28 @@ Dim i As Long, j As Long, k As Long, m As Long, n As Long
 Dim iterate As Long, n_hidden As Long
 Dim xW() As Double, xb() As Double
 
-    ReDim vdWgts(1 To pn_layer)
-    ReDim vdBias(1 To pn_layer)
-    
-    m = pn_input
-    For iterate = 1 To pn_layer
-        n_hidden = pn_hidden(iterate)
-        
-        ReDim xW(1 To n_hidden, 1 To m)
-        ReDim xb(1 To n_hidden)
-        
-        vdWgts(iterate) = xW
-        vdBias(iterate) = xb
-        
-        m = n_hidden
-    Next iterate
-    
-    ReDim dWOut(1 To pn_output, 1 To m)
+    ReDim dWOut(1 To pn_output, 1 To UBound(pWOut, 2))
     ReDim dbOut(1 To pn_output)
     
+    If pn_layer > 0 Then
+
+        ReDim vdWgts(1 To pn_layer)
+        ReDim vdBias(1 To pn_layer)
+        
+        m = pn_input
+        For iterate = 1 To pn_layer
+            n_hidden = pn_hidden(iterate)
+            
+            ReDim xW(1 To n_hidden, 1 To m)
+            ReDim xb(1 To n_hidden)
+            
+            vdWgts(iterate) = xW
+            vdBias(iterate) = xb
+            
+            m = n_hidden
+        Next iterate
+        
+    End If
 End Sub
 
 'Initialize with one input layer and one output layer of specified activation function
@@ -507,7 +535,7 @@ Function FwdPass(x, Optional storeOutput As Boolean = False)
 Dim i As Long, j As Long, k As Long, m As Long, n As Long, n_len As Long, n_input As Long, n_hidden As Long
 Dim iterate As Long
 Dim xW() As Double, xb() As Double
-Dim xin() As Double
+Dim xin As Variant
 Dim h() As Double, h_tmp() As Double
 Dim v As Variant
 Dim strType As String
@@ -527,7 +555,7 @@ Dim boolean_tmp() As Boolean
     If storeOutput Then pn_hist = n_hist_prv + n_len
     
     'store output of each hidden layer
-    If storeOutput And n_hist_prv = 0 Then
+    If storeOutput And n_hist_prv = 0 And pn_layer > 0 Then
         ReDim vh_out(1 To pn_layer)
         ReDim visDrop(1 To pn_layer)
     End If
@@ -705,7 +733,7 @@ Dim iterate As Long
 Dim xW() As Double, xb() As Double, dW() As Double, dBias() As Double
 Dim y() As Double
 Dim h() As Double
-Dim v As Variant, x() As Double, z() As Double
+Dim v As Variant, x As Variant, z() As Double
 Dim strType As String
 Dim grad_curr As Variant, grad_nxt As Variant, grad_loc As Variant
 Dim n_hidden_nxt As Long, layerType_nxt As String
@@ -720,7 +748,6 @@ Dim tmp_x As Double, isDrop() As Boolean, drop_prob As Double
     
     'Placeholder to store changes in weights
     Call InitWgtChg
-    m = pn_hidden(pn_layer)
     
     ReDim grad_curr(1 To n_output, 1 To n_len)
     If isdEdx Then
@@ -739,8 +766,15 @@ Dim tmp_x As Double, isDrop() As Boolean, drop_prob As Double
         Next k
     
     End If
-    
-    x = vh_out(pn_layer)
+
+    If pn_layer = 0 Then
+        m = pn_input
+        x = px_in
+    Else
+        m = pn_hidden(pn_layer)
+        x = vh_out(pn_layer)
+    End If
+
     For k = n_len To 1 Step -1
         For i = 1 To pn_output
             dbOut(i) = dbOut(i) + grad_curr(i, k)
@@ -798,35 +832,63 @@ Dim tmp_x As Double, isDrop() As Boolean, drop_prob As Double
                 
                 isDrop = visDrop(iterate + 1)
                 tmp_x = 1 / (1 - drop_prob)
+                
+                v = wkshtMMult(wkshtTranspose(xW), grad_nxt)
                 For k = n_len To 1 Step -1
                     For i = 1 To n_hidden
                         If Not isDrop(i, k) Then
-                            For j = 1 To n_hidden_nxt
-                                grad_curr(i, k) = grad_curr(i, k) + grad_nxt(j, k) * xW(j, i) * tmp_x * grad_loc(i, k)
-                            Next j
+                            grad_curr(i, k) = grad_curr(i, k) + v(i, k) * tmp_x * grad_loc(i, k)
+                        Else
+                            grad_curr(i, k) = 0
                         End If
                     Next i
                 Next k
+                
+'                For k = n_len To 1 Step -1
+'                    For i = 1 To n_hidden
+'                        If Not isDrop(i, k) Then
+'                            For j = 1 To n_hidden_nxt
+'                                grad_curr(i, k) = grad_curr(i, k) + grad_nxt(j, k) * xW(j, i) * tmp_x * grad_loc(i, k)
+'                            Next j
+'                        Else
+'                            grad_curr(i, k) = 0
+'                        End If
+'                    Next i
+'                Next k
    
             Else
-            
+                
+                v = wkshtMMult(wkshtTranspose(xW), grad_nxt)
                 For k = n_len To 1 Step -1
                     For i = 1 To n_hidden
-                        For j = 1 To n_hidden_nxt
-                            grad_curr(i, k) = grad_curr(i, k) + grad_nxt(j, k) * xW(j, i) * grad_loc(i, k)
-                        Next j
+                        grad_curr(i, k) = grad_curr(i, k) + v(i, k) * grad_loc(i, k)
                     Next i
                 Next k
+                
+'                For k = n_len To 1 Step -1
+'                    For i = 1 To n_hidden
+'                        For j = 1 To n_hidden_nxt
+'                            grad_curr(i, k) = grad_curr(i, k) + grad_nxt(j, k) * xW(j, i) * grad_loc(i, k)
+'                        Next j
+'                    Next i
+'                Next k
             
             End If
             
             'Accumulate gradients
+            v = wkshtMMult(x, wkshtTranspose(grad_curr))
+            For i = 1 To n_hidden
+                For j = 1 To n_input
+                    dW(i, j) = dW(i, j) + v(j, i)
+                Next j
+            Next i
+            
             For k = n_len To 1 Step -1
                 For i = 1 To n_hidden
                     dBias(i) = dBias(i) + grad_curr(i, k)
-                    For j = 1 To n_input
-                        dW(i, j) = dW(i, j) + grad_curr(i, k) * x(j, k)
-                    Next j
+'                    For j = 1 To n_input
+'                        dW(i, j) = dW(i, j) + grad_curr(i, k) * x(j, k)
+'                    Next j
                 Next i
             Next k
     
@@ -844,11 +906,17 @@ Dim tmp_x As Double, isDrop() As Boolean, drop_prob As Double
     Next iterate
 
     'On exit, calculate dL/dx to pass to previous networks
-    xW = vWgts(1)
+    If pn_layer = 0 Then
+        xW = pWOut
+        m = pn_output
+    Else
+        xW = vWgts(1)
+        m = n_hidden
+    End If
     ReDim grad_curr(1 To pn_input, 1 To n_len)
     For k = 1 To n_len
-        For i = 1 To n_input
-            For j = 1 To n_hidden
+        For i = 1 To pn_input
+            For j = 1 To m
                 grad_curr(i, k) = grad_curr(i, k) + grad_nxt(j, k) * xW(j, i)
             Next j
         Next i
@@ -874,7 +942,7 @@ Dim adam_discount1 As Double, adam_discount2 As Double
         
         Call RMSProp_CalcRMS
         
-        m = pn_hidden(pn_layer)
+        m = UBound(pWOut, 2)
         For i = 1 To pn_output
             pbOut(i) = pbOut(i) - learn_rate * dbOut(i) / (Sqr(dbOut2(i)) + 0.00000001)
         Next i
@@ -922,7 +990,7 @@ Dim adam_discount1 As Double, adam_discount2 As Double
         adam_discount1 = 1 / (1 - 0.9 ^ pADAM_count)
         adam_discount2 = 1 / (1 - 0.999 ^ pADAM_count)
         
-        m = pn_hidden(pn_layer)
+        m = UBound(pWOut, 2)
         For i = 1 To pn_output
             pbOut(i) = pbOut(i) - learn_rate * dbOut1(i) * adam_discount1 / (Sqr(dbOut2(i) * adam_discount2) + 0.00000001)
         Next i
@@ -965,7 +1033,7 @@ Dim adam_discount1 As Double, adam_discount2 As Double
     
     Else
     
-        m = pn_hidden(pn_layer)
+        m = UBound(pWOut, 2)
         For i = 1 To pn_output
             pbOut(i) = pbOut(i) - learn_rate * dbOut(i)
         Next i
@@ -1003,7 +1071,10 @@ Dim adam_discount1 As Double, adam_discount2 As Double
         Next iterate
     
     End If
-    Erase vdWgts, vdBias, dWOut, dbOut
+    If pn_layer > 0 Then
+        Erase vdWgts, vdBias
+    End If
+    Erase dWOut, dbOut
     
 End Sub
 
@@ -1223,7 +1294,6 @@ Dim batch_size As Long
                     grad_out = f_calcdEdy(y, yy, strLossType)
                     Call Backward(grad_out)
                 End If
-
                 Call UpdateWgt(step_size, UCase(useSpeedUp))
                 Call ResetWgtChg
                 Call ClearHist
@@ -1850,6 +1920,60 @@ Dim i As Long
 End Function
 
 
+Private Function wkshtTranspose(x)
+Dim i As Long, j As Long, m As Long, n As Long
+Dim z() As Double
+    If UBound(x, 2) = 1 Or UBound(x, 1) = 1 Then
+        n = UBound(x, 2)
+        m = UBound(x, 1)
+        ReDim z(1 To n, 1 To m)
+        For i = 1 To m
+            For j = 1 To n
+                z(j, i) = x(i, j)
+            Next j
+        Next i
+        wkshtTranspose = z
+    Else
+        wkshtTranspose = Application.WorksheetFunction.Transpose(x)
+    End If
+End Function
+
+Private Function wkshtMMult(A, B)
+Dim i As Long, j As Long, k As Long, m As Long, n As Long, mm As Long
+Dim z() As Double
+Dim v As Variant
+Dim tmp_x As Double
+
+    m = UBound(A, 1)
+    n = UBound(B, 2)
+    mm = UBound(A, 2)
+    
+    If UBound(B, 1) <> mm Then
+        Debug.Print "wkshtMMult: sizes mismatch"
+        End
+    End If
+    
+    v = Application.WorksheetFunction.MMult(A, B)
+    
+    If getDimension(v) = 1 Then
+        ReDim z(1 To m, 1 To n)
+        If m = 1 Then
+            For i = 1 To n
+                z(1, i) = v(i)
+            Next i
+        ElseIf n = 1 Then
+            For i = 1 To n
+                z(i, 1) = v(i)
+            Next i
+        End If
+        wkshtMMult = z
+    Else
+        wkshtMMult = v
+    End If
+    
+
+End Function
+
 
 
 '=====================================================================================================================================
@@ -2406,4 +2530,57 @@ Dim tmp_x As Double, x_curve As Double
     
 End Sub
 
+
+Function TimeSeries2Batches(x As Variant, Optional endpts As Variant)
+Dim i As Long, j As Long, k As Long, m As Long, n As Long
+Dim n_input As Long, n_T As Long, iterate As Long
+Dim n_segment As Long, i_segment As Long, seg_len As Long
+Dim v() As Variant, x_sub() As Double
+Dim iArr() As Long
+
+    n_T = UBound(x, 2)
+    n_input = UBound(x, 1)
+    
+    If IsArray(endpts) Then
+        n_segment = UBound(endpts, 1)
+        ReDim iArr(1 To n_segment)
+        For i = 1 To n_segment
+            iArr(i) = endpts(i)
+        Next i
+    Else
+        ReDim iArr(1 To n_T)
+        m = 0
+        n_segment = 0
+        Do While m < n_T
+            m = m + endpts
+            If m > n_T Then m = n_T
+            n_segment = n_segment + 1
+            iArr(n_segment) = m
+        Loop
+        ReDim Preserve iArr(1 To n_segment)
+    End If
+    
+    m = 0
+    n = 0
+    ReDim v(1 To n_segment)
+    For i_segment = 1 To n_segment
+        
+        m = n + 1
+        n = iArr(i_segment)
+        seg_len = n - m + 1
+        ReDim x_sub(1 To n_input, 1 To seg_len)
+        For i = 1 To seg_len
+            k = m + i - 1
+            For j = 1 To n_input
+                x_sub(j, i) = x(j, k)
+            Next j
+        Next i
+        
+        v(i_segment) = x_sub
+        
+    Next i_segment
+    
+    TimeSeries2Batches = v
+    
+End Function
 
